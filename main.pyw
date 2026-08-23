@@ -24,35 +24,15 @@ if hwnd_console:
 
 GWL_EXSTYLE = -20
 WS_EX_NOACTIVATE = 0x08000000
-WS_EX_TOOLWINDOW = 0x00000080
-WS_EX_APPWINDOW = 0x00040000
-SW_HIDE = 0
 
 def is_garbage_token(text):
     return bool(len(text) > 30 and re.match(r'^[A-Za-z0-9_\-]+$', text))
-
-def hide_window_from_taskbar(driver):
-    """使用 Windows API 強制隱藏 Chrome 視窗與工作列圖標"""
-    try:
-        time.sleep(0.5)
-        hwnd = ctypes.windll.user32.FindWindowW(None, driver.title)
-        if not hwnd:
-            hwnd = ctypes.windll.user32.FindWindowW("Chrome_WidgetWin_1", None)
-
-        if hwnd:
-            ex_style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-            ex_style = (ex_style | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW
-            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style)
-            ctypes.windll.user32.ShowWindow(hwnd, SW_HIDE)
-    except Exception as e:
-        print(f"[警告] 隱藏工作列圖標失敗: {e}")
 
 def create_tray_icon_image():
     """動態生成托盤麥克風圖示 (32x32)"""
     width, height = 32, 32
     image = Image.new('RGBA', (width, height), (0, 0, 0, 0))
     dc = ImageDraw.Draw(image)
-    # 繪製圓形底色與簡易圖標
     dc.ellipse((2, 2, 30, 30), fill='#1E1E1E', outline='#40A9FF', width=2)
     dc.rectangle((13, 8, 19, 18), fill='#40A9FF')
     dc.arc((10, 12, 22, 22), 0, 180, fill='#40A9FF', width=2)
@@ -147,7 +127,7 @@ class PersistentVoiceBarUI:
             padx=6,
             pady=2,
             cursor="hand2",
-            command=self.hide_ui,  # 按下 ✕ 時預設隱藏至系統托盤
+            command=self.hide_ui,
             takefocus=False
         )
         close_button.pack(side="right", padx=(2, 6))
@@ -159,7 +139,6 @@ class PersistentVoiceBarUI:
 
         self.root.update_idletasks()
 
-        # 關鍵位置計算：定位於螢幕右下角 (保留 60px 避開工作列)
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         x_pos = screen_width - self.width - 20
@@ -172,7 +151,6 @@ class PersistentVoiceBarUI:
         self.root.mainloop()
 
     def toggle_ui(self):
-        """切換懸浮框顯示/隱藏"""
         if self.is_visible:
             self.hide_ui()
         else:
@@ -190,7 +168,6 @@ class PersistentVoiceBarUI:
             self.is_visible = False
 
     def destroy_app(self):
-        """徹底退出程式"""
         if self.on_close_callback:
             self.on_close_callback()
         if self.root:
@@ -252,26 +229,22 @@ class VoiceInputApp:
         self.ui_queue = ui_queue
         
         chrome_options = Options()
+        # 核心：啟用現代 Headless 模式，完全不建立 GUI 視窗
+        chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--use-fake-ui-for-media-stream")
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         
-        chrome_options.add_argument("--disable-background-timer-throttling")
-        chrome_options.add_argument("--disable-backgrounding-occluded-windows")
-        chrome_options.add_argument("--disable-renderer-backgrounding")
-        
-        chrome_options.add_argument("--app=https://www.google.com")
-        chrome_options.add_argument("--window-position=-32000,-32000")
-        chrome_options.add_argument("--window-size=800,600")
-        
         user_data_dir = os.path.join(os.environ['LOCALAPPDATA'], 'Google', 'Chrome', 'User Data VoiceAppFix')
         chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
 
-        try:
-            self.driver = webdriver.Chrome(options=chrome_options)
-        except Exception:
-            os.system("taskkill /f /im chromedriver.exe >nul 2>&1")
-            self.driver = webdriver.Chrome(options=chrome_options)
+        self.driver = webdriver.Chrome(options=chrome_options)
+
+        # 透過 CDP 強制開啟 Google 網域的麥克風存取權限
+        self.driver.execute_cdp_cmd("Browser.grantPermissions", {
+            "origin": "https://www.google.com",
+            "permissions": ["audioCapture"]
+        })
 
         self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
             "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
@@ -282,8 +255,6 @@ class VoiceInputApp:
         self.is_processing = False
         self.stop_event = threading.Event()
         self.reset_timer = None
-
-        hide_window_from_taskbar(self.driver)
 
     def quit(self):
         if self.reset_timer:
@@ -315,6 +286,7 @@ class VoiceInputApp:
             self.ui_queue.put(("LISTENING", "聆聽中，請說話...", "#40A9FF"))
 
             self.driver.get("https://www.google.com")
+
             if self.stop_event.is_set():
                 return
 
@@ -407,7 +379,6 @@ if __name__ == "__main__":
         on_close_callback=app.quit
     )
 
-    # 在獨立背景執行緒啟動系統托盤
     tray_icon_holder = {}
     tray_thread = threading.Thread(
         target=setup_tray_icon, 
