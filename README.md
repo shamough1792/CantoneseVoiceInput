@@ -11,7 +11,7 @@
 ## 🚀 快速開始
 
 ### 下載安裝
-1. 從 [Releases](https://github.com/yourusername/cantonese-voice-input/releases) 下載最新 `CantoneseVoiceInput.exe`
+1. 從 [Releases](https://github.com/shamough1792/CantoneseVoiceInput/releases) 下載最新 `CantoneseVoiceInput.exe`
 2. 直接執行（無需安裝）
 
 ### 首次使用
