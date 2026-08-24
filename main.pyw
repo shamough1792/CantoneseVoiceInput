@@ -7,6 +7,7 @@ import queue
 import winsound
 import tkinter as tk
 from tkinter import messagebox
+import traceback
 from pynput import keyboard
 from pynput.keyboard import Controller as KeyboardController, Key
 from selenium import webdriver
@@ -17,11 +18,6 @@ from selenium.webdriver.support import expected_conditions as EC
 
 import pystray
 from PIL import Image, ImageDraw
-
-# 自動隱藏 CMD 主控台
-hwnd_console = ctypes.windll.kernel32.GetConsoleWindow()
-if hwnd_console:
-    ctypes.windll.user32.ShowWindow(hwnd_console, 0)
 
 GWL_EXSTYLE = -20
 WS_EX_NOACTIVATE = 0x08000000
@@ -39,10 +35,8 @@ def play_sound(sound_type="start"):
     def _play():
         try:
             if sound_type == "start":
-                # 開始錄音：播放 Windows 清脆的 Default 通知聲
                 winsound.PlaySound("Notification.Default", winsound.SND_ALIAS | winsound.SND_ASYNC)
             elif sound_type == "success":
-                # 完成輸入：播放簡短輕柔的通知音效
                 winsound.PlaySound("SystemNotification", winsound.SND_ALIAS | winsound.SND_ASYNC)
         except Exception:
             pass
@@ -137,8 +131,6 @@ class CardVoiceUI:
 
         self.root.config(bg=TRANS_COLOR)
         self.root.wm_attributes("-transparentcolor", TRANS_COLOR)
-        
-        # 透明度調高：設為 0.82
         self.root.attributes("-alpha", 0.82)
 
         self.root.protocol("WM_DELETE_WINDOW", self.hide_ui)
@@ -485,21 +477,29 @@ class VoiceInputApp:
         self.kb_controller = KeyboardController()
         
         chrome_options = Options()
-        chrome_options.add_argument("--app=https://www.google.com")
+        chrome_options.add_argument("--app=https://www.google.com.hk")
         chrome_options.add_argument("--window-position=-32000,-32000")
         chrome_options.add_argument("--window-size=1,1")
+        
+        # 強制語音鎖定廣東話 zh-HK
+        chrome_options.add_argument("--lang=zh-HK")
+        chrome_options.add_experimental_option("prefs", {
+            "intl.accept_languages": "zh-HK,zh",
+            "profile.default_content_setting_values.media_stream_mic": 1
+        })
+        
         chrome_options.add_argument("--use-fake-ui-for-media-stream")
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         
-        # 🔻 記憶體安全優化參數 🔻
-        chrome_options.add_argument("--disable-gpu")                      # 關閉 GPU 硬體加速
-        chrome_options.add_argument("--disable-software-rasterizer")      # 禁用軟體繪圖渲染
-        chrome_options.add_argument("--disable-extensions")               # 禁用擴充功能
-        chrome_options.add_argument("--disable-plugins")                  # 禁用外掛程式
-        chrome_options.add_argument("--renderer-process-limit=1")          # 限制渲染進程上限
-        chrome_options.add_argument("--no-first-run")                      # 略過首次運行引導
-        chrome_options.add_argument("--no-default-browser-check")          # 略過預設瀏覽器檢查
+        # 記憶體安全優化參數
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--disable-software-rasterizer")
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--disable-plugins")
+        chrome_options.add_argument("--renderer-process-limit=1")
+        chrome_options.add_argument("--no-first-run")
+        chrome_options.add_argument("--no-default-browser-check")
         
         user_data_dir = os.path.join(os.environ['LOCALAPPDATA'], 'Google', 'Chrome', 'User Data VoiceAppFix')
         chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
@@ -507,6 +507,10 @@ class VoiceInputApp:
         self.driver = webdriver.Chrome(options=chrome_options)
         self._hide_chrome_window()
 
+        self.driver.execute_cdp_cmd("Browser.grantPermissions", {
+            "origin": "https://www.google.com.hk",
+            "permissions": ["audioCapture"]
+        })
         self.driver.execute_cdp_cmd("Browser.grantPermissions", {
             "origin": "https://www.google.com",
             "permissions": ["audioCapture"]
@@ -562,7 +566,7 @@ class VoiceInputApp:
             play_sound("start")
             self.ui_queue.put(("LISTENING", "聆聽中...", COLOR_ACCENT))
 
-            self.driver.get("https://www.google.com")
+            self.driver.get("https://www.google.com.hk/webhp?hl=zh-HK")
 
             if self.stop_event.is_set():
                 return
@@ -642,25 +646,33 @@ def setup_tray_icon(input_bar, tray_icon_holder):
     icon.run()
 
 if __name__ == "__main__":
-    ui_queue = queue.Queue()
-    
-    hotkey_manager = DynamicHotkeyManager(action_callback=lambda: app.trigger_speech())
-    
-    app = VoiceInputApp(ui_queue, hotkey_manager)
-    
-    input_bar = CardVoiceUI(
-        ui_queue, 
-        on_mic_click_callback=app.trigger_speech,
-        hotkey_manager=hotkey_manager,
-        on_close_callback=app.quit
-    )
+    try:
+        ui_queue = queue.Queue()
+        
+        hotkey_manager = DynamicHotkeyManager(action_callback=lambda: app.trigger_speech())
+        
+        app = VoiceInputApp(ui_queue, hotkey_manager)
+        
+        input_bar = CardVoiceUI(
+            ui_queue, 
+            on_mic_click_callback=app.trigger_speech,
+            hotkey_manager=hotkey_manager,
+            on_close_callback=app.quit
+        )
 
-    tray_icon_holder = {}
-    tray_thread = threading.Thread(
-        target=setup_tray_icon, 
-        args=(input_bar, tray_icon_holder), 
-        daemon=True
-    )
-    tray_thread.start()
+        tray_icon_holder = {}
+        tray_thread = threading.Thread(
+            target=setup_tray_icon, 
+            args=(input_bar, tray_icon_holder), 
+            daemon=True
+        )
+        tray_thread.start()
 
-    input_bar.start()
+        input_bar.start()
+
+    except Exception as e:
+        err_msg = traceback.format_exc()
+        root_err = tk.Tk()
+        root_err.withdraw()
+        messagebox.showerror("啟動失敗 (Crash Log)", f"程式發生致命錯誤：\n\n{err_msg}")
+        root_err.destroy()
