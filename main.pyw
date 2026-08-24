@@ -137,7 +137,7 @@ class CardVoiceUI:
 
         self.root.config(bg=TRANS_COLOR)
         self.root.wm_attributes("-transparentcolor", TRANS_COLOR)
-        self.root.attributes("-alpha", 0.96)
+        self.root.attributes("-alpha", 0.85)
 
         self.root.protocol("WM_DELETE_WINDOW", self.hide_ui)
 
@@ -584,7 +584,11 @@ class VoiceInputApp:
             if recognized_text:
                 # 播放完成輸入提示音
                 play_sound("success")
-                self.ui_queue.put(("IDLE", f"✨ {recognized_text}", "#34C759"))
+                
+                # 截斷 UI 顯示的文字，避免超出卡片寬度（輸入至游標時依然是完整文字）
+                display_text = recognized_text if len(recognized_text) <= 12 else recognized_text[:12] + "..."
+                
+                self.ui_queue.put(("IDLE", f"✨ {display_text}", "#34C759"))
                 self.kb_controller.type(recognized_text)
             else:
                 self.ui_queue.put(("IDLE", "⚠️ 未聽清", "#FF9500"))
