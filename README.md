@@ -37,6 +37,40 @@
 - **麥克風**：可正常使用的麥克風
 - **網絡**：需要網絡連線進行語音處理
 
+## 🛠️ 開發與建構 (Building from Source)
+
+如果你希望從原始碼自行編譯打包成獨立的 `.exe` 執行檔，請依照以下步驟操作：
+
+### 1. 安裝依賴套件
+確保已安裝 Python 3.8+，並執行以下指令安裝所需庫：
+
+```bash
+pip install selenium pynput pystray pillow PyInstaller
+```
+
+### 2. 準備圖示檔
+將專案所需的圖示檔案 app.ico 放至專案根目錄下。
+
+### 3. 執行 PyInstaller 打包
+使用以下指令進行單一檔案（One-file）及無控制台視窗（Windowed）的編譯打包：
+
+```bash
+pyinstaller --noconfirm --onefile --windowed --hidden-import=selenium.webdriver.chrome.webdriver -i app.ico main.pyw
+```
+
+說明：
+
+--onefile：將所有依賴打包為單一 .exe 檔。
+
+--windowed：隱藏 CMD 主控台視窗。
+
+--hidden-import=selenium.webdriver.chrome.webdriver：確保 Selenium Chrome Driver 正確載入。
+
+-i app.ico：指定產出的應用程式圖示。
+
+編譯完成後，產生的執行檔將存放在 dist/ 資料夾中。
+
+
 ## 📄 授權 (License)
 
 本專案採用 [MIT License](LICENSE) 開源。
