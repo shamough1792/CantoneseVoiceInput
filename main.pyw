@@ -137,7 +137,9 @@ class CardVoiceUI:
 
         self.root.config(bg=TRANS_COLOR)
         self.root.wm_attributes("-transparentcolor", TRANS_COLOR)
-        self.root.attributes("-alpha", 0.85)
+        
+        # 透明度調高：設為 0.82
+        self.root.attributes("-alpha", 0.82)
 
         self.root.protocol("WM_DELETE_WINDOW", self.hide_ui)
 
@@ -241,7 +243,6 @@ class CardVoiceUI:
         bg_circle_color = COLOR_MIC_BG if not active else COLOR_MIC_ACTIVE
         icon_color = COLOR_ACCENT
         
-        # 錄音狀態時將整個邊框高亮為水藍色
         border_color = COLOR_ACCENT if active else COLOR_BORDER
         border_width = 2 if active else 1
         
@@ -256,7 +257,6 @@ class CardVoiceUI:
         self.mic_btn_canvas.create_text(23, 23, text=mic_symbol, font=("Segoe UI Emoji", 13), fill=icon_color)
 
     def _open_settings_dialog(self):
-        """彈出快捷鍵錄製與重設視窗"""
         dialog = tk.Toplevel(self.root)
         dialog.title("設定快捷鍵")
         
@@ -492,6 +492,15 @@ class VoiceInputApp:
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         
+        # 🔻 記憶體安全優化參數 🔻
+        chrome_options.add_argument("--disable-gpu")                      # 關閉 GPU 硬體加速
+        chrome_options.add_argument("--disable-software-rasterizer")      # 禁用軟體繪圖渲染
+        chrome_options.add_argument("--disable-extensions")               # 禁用擴充功能
+        chrome_options.add_argument("--disable-plugins")                  # 禁用外掛程式
+        chrome_options.add_argument("--renderer-process-limit=1")          # 限制渲染進程上限
+        chrome_options.add_argument("--no-first-run")                      # 略過首次運行引導
+        chrome_options.add_argument("--no-default-browser-check")          # 略過預設瀏覽器檢查
+        
         user_data_dir = os.path.join(os.environ['LOCALAPPDATA'], 'Google', 'Chrome', 'User Data VoiceAppFix')
         chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
 
@@ -550,7 +559,6 @@ class VoiceInputApp:
             self.reset_timer.cancel()
 
         try:
-            # 播放開始錄音提示音
             play_sound("start")
             self.ui_queue.put(("LISTENING", "聆聽中...", COLOR_ACCENT))
 
@@ -582,10 +590,8 @@ class VoiceInputApp:
                 recognized_text = self._get_current_text()
 
             if recognized_text:
-                # 播放完成輸入提示音
                 play_sound("success")
                 
-                # 截斷 UI 顯示的文字，避免超出卡片寬度（輸入至游標時依然是完整文字）
                 display_text = recognized_text if len(recognized_text) <= 12 else recognized_text[:12] + "..."
                 
                 self.ui_queue.put(("IDLE", f"✨ {display_text}", "#34C759"))
