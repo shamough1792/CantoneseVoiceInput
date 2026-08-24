@@ -117,3 +117,5 @@ pyinstaller --noconfirm --onefile --windowed --hidden-import=selenium.webdriver.
 <br>
 
 本專案採用 [MIT License](LICENSE) 開源。
+
+<br>
