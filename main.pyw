@@ -406,7 +406,63 @@ class CardVoiceUI:
         reset_btn.pack(pady=(0, 4))
 
     def _show_help(self):
-        messagebox.showinfo("使用說明", f"1. 按下快捷鍵 ({self.hotkey_manager.get_display_text()}) 開始錄音\n2. 對著麥克風講廣東話\n3. 識別後自動輸入至游標位置\n4. 點擊 ✕ 隱藏浮窗，可由右下角托盤重新呼出")
+        help_dialog = tk.Toplevel(self.root)
+        help_dialog.title("使用說明")
+        
+        dialog_width = 300
+        dialog_height = 200
+        help_dialog.configure(bg=COLOR_BG)
+        help_dialog.resizable(False, False)
+        help_dialog.attributes("-topmost", True)
+
+        screen_width = help_dialog.winfo_screenwidth()
+        screen_height = help_dialog.winfo_screenheight()
+        center_x = int((screen_width - dialog_width) / 2)
+        center_y = int((screen_height - dialog_height) / 2)
+        help_dialog.geometry(f"{dialog_width}x{dialog_height}+{center_x}+{center_y}")
+
+        title_label = tk.Label(
+            help_dialog, 
+            text="粵語語音輸入法指南", 
+            font=("Microsoft JhengHei UI", 10, "bold"), 
+            bg=COLOR_BG, 
+            fg=COLOR_ACCENT
+        )
+        title_label.pack(pady=(15, 10))
+
+        current_hotkey = self.hotkey_manager.get_display_text()
+        help_text = (
+            f"1. 按下快捷鍵 ({current_hotkey}) 開始錄音\n"
+            "2. 對著麥克風講廣東話\n"
+            "3. 識別後將自動輸入至游標位置\n"
+            "4. 點擊 ✕ 可隱藏浮窗，由右下角托盤重啟"
+        )
+        
+        content_label = tk.Label(
+            help_dialog, 
+            text=help_text, 
+            font=("Microsoft JhengHei UI", 9), 
+            bg=COLOR_BG, 
+            fg=COLOR_ICON,
+            justify="left"
+        )
+        content_label.pack(padx=20, pady=(0, 15), anchor="w")
+
+        ok_btn = tk.Button(
+            help_dialog, 
+            text="了解", 
+            font=("Microsoft JhengHei UI", 9), 
+            bg=COLOR_MIC_BG, 
+            fg=COLOR_ACCENT, 
+            activebackground=COLOR_MIC_ACTIVE,
+            activeforeground=COLOR_ACCENT,
+            bd=1, 
+            relief="solid",
+            width=10,
+            cursor="hand2",
+            command=help_dialog.destroy
+        )
+        ok_btn.pack(pady=(0, 15))
 
     def toggle_ui(self):
         if self.is_visible:
