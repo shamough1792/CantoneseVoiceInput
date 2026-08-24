@@ -4,6 +4,7 @@ import os
 import ctypes
 import threading
 import queue
+import winsound
 import tkinter as tk
 from tkinter import messagebox
 from pynput import keyboard
@@ -25,6 +26,28 @@ if hwnd_console:
 GWL_EXSTYLE = -20
 WS_EX_NOACTIVATE = 0x08000000
 
+# 主題配色定義 (墨綠/深灰綠風格)
+COLOR_BG = "#121d20"         # 主背景暗青色
+COLOR_BORDER = "#1e2f33"     # 邊框與分割線
+COLOR_ACCENT = "#56c2e6"     # 水藍色高亮
+COLOR_ICON = "#a3b8bc"       # 圖示與文字預設灰色
+COLOR_MIC_BG = "#19282c"     # 麥克風底圈
+COLOR_MIC_ACTIVE = "#223d45"  # 錄音中麥克風底圈
+
+def play_sound(sound_type="start"):
+    """發出輕柔自然的原生系統通知聲"""
+    def _play():
+        try:
+            if sound_type == "start":
+                # 開始錄音：播放 Windows 清脆的 Default 通知聲
+                winsound.PlaySound("Notification.Default", winsound.SND_ALIAS | winsound.SND_ASYNC)
+            elif sound_type == "success":
+                # 完成輸入：播放簡短輕柔的通知音效
+                winsound.PlaySound("SystemNotification", winsound.SND_ALIAS | winsound.SND_ASYNC)
+        except Exception:
+            pass
+    threading.Thread(target=_play, daemon=True).start()
+
 def is_garbage_token(text):
     return bool(len(text) > 30 and re.match(r'^[A-Za-z0-9_\-]+$', text))
 
@@ -32,11 +55,11 @@ def create_tray_icon_image():
     width, height = 32, 32
     image = Image.new('RGBA', (width, height), (0, 0, 0, 0))
     dc = ImageDraw.Draw(image)
-    dc.ellipse((2, 2, 30, 30), fill='#222224', outline='#55B2FF', width=2)
-    dc.rectangle((13, 8, 19, 18), fill='#55B2FF')
-    dc.arc((10, 12, 22, 22), 0, 180, fill='#55B2FF', width=2)
-    dc.line((16, 22, 16, 26), fill='#55B2FF', width=2)
-    dc.line((12, 26, 20, 26), fill='#55B2FF', width=2)
+    dc.ellipse((2, 2, 30, 30), fill=COLOR_BG, outline=COLOR_ACCENT, width=2)
+    dc.rectangle((13, 8, 19, 18), fill=COLOR_ACCENT)
+    dc.arc((10, 12, 22, 22), 0, 180, fill=COLOR_ACCENT, width=2)
+    dc.line((16, 22, 16, 26), fill=COLOR_ACCENT, width=2)
+    dc.line((12, 26, 20, 26), fill=COLOR_ACCENT, width=2)
     return image
 
 class DynamicHotkeyManager:
@@ -111,8 +134,6 @@ class CardVoiceUI:
         self.root.attributes("-topmost", True)
         
         TRANS_COLOR = "#000001"
-        BG_COLOR = "#222224"
-        BORDER_COLOR = "#333336"
 
         self.root.config(bg=TRANS_COLOR)
         self.root.wm_attributes("-transparentcolor", TRANS_COLOR)
@@ -132,54 +153,54 @@ class CardVoiceUI:
         )
         self.main_canvas.pack()
 
-        self._draw_round_rect(0, 0, self.width, self.height, radius=14, fill=BG_COLOR, outline=BORDER_COLOR)
+        self._draw_round_rect(0, 0, self.width, self.height, radius=14, fill=COLOR_BG, outline=COLOR_BORDER)
 
-        top_frame = tk.Frame(self.root, bg=BG_COLOR)
+        top_frame = tk.Frame(self.root, bg=COLOR_BG)
         top_frame.place(x=8, y=6, width=self.width-16, height=22)
 
-        handle_canvas = tk.Canvas(top_frame, width=32, height=6, bg=BG_COLOR, highlightthickness=0)
+        handle_canvas = tk.Canvas(top_frame, width=32, height=6, bg=COLOR_BG, highlightthickness=0)
         handle_canvas.pack(side="top", pady=2)
-        handle_canvas.create_rectangle(0, 1, 32, 5, fill="#55555A", outline="")
+        handle_canvas.create_rectangle(0, 1, 32, 5, fill="#374d52", outline="")
 
         close_btn = tk.Label(
             top_frame, 
             text="✕", 
-            font=("Microsoft JhengHei UI", 8), 
-            bg="#2A2A2D", 
-            fg="#AAAAAE",
+            font=("Microsoft JhengHei UI", 9), 
+            bg=COLOR_BG, 
+            fg=COLOR_ICON,
             cursor="hand2"
         )
         close_btn.place(x=self.width-36, y=0, width=18, height=18)
         close_btn.bind("<Button-1>", lambda e: self.hide_ui())
-        close_btn.bind("<Enter>", lambda e: close_btn.config(bg="#FF3B30", fg="#FFFFFF"))
-        close_btn.bind("<Leave>", lambda e: close_btn.config(bg="#2A2A2D", fg="#AAAAAE"))
+        close_btn.bind("<Enter>", lambda e: close_btn.config(fg="#FF3B30"))
+        close_btn.bind("<Leave>", lambda e: close_btn.config(fg=COLOR_ICON))
 
-        mid_frame = tk.Frame(self.root, bg=BG_COLOR)
+        mid_frame = tk.Frame(self.root, bg=COLOR_BG)
         mid_frame.place(x=8, y=28, width=self.width-16, height=50)
 
-        setting_btn = tk.Label(mid_frame, text="⚙", font=("Segoe UI Symbol", 11), bg=BG_COLOR, fg="#8E8E93", cursor="hand2")
+        setting_btn = tk.Label(mid_frame, text="⚙", font=("Segoe UI Symbol", 12), bg=COLOR_BG, fg=COLOR_ICON, cursor="hand2")
         setting_btn.pack(side="left", padx=10)
         setting_btn.bind("<Button-1>", lambda e: self._open_settings_dialog())
-        setting_btn.bind("<Enter>", lambda e: setting_btn.config(fg="#FFFFFF"))
-        setting_btn.bind("<Leave>", lambda e: setting_btn.config(fg="#8E8E93"))
+        setting_btn.bind("<Enter>", lambda e: setting_btn.config(fg=COLOR_ACCENT))
+        setting_btn.bind("<Leave>", lambda e: setting_btn.config(fg=COLOR_ICON))
 
-        self.mic_btn_canvas = tk.Canvas(mid_frame, width=46, height=46, bg=BG_COLOR, highlightthickness=0, cursor="hand2")
+        self.mic_btn_canvas = tk.Canvas(mid_frame, width=46, height=46, bg=COLOR_BG, highlightthickness=0, cursor="hand2")
         self.mic_btn_canvas.pack(side="left", expand=True)
         self._draw_mic_button(active=False)
         self.mic_btn_canvas.bind("<Button-1>", lambda e: self.on_mic_click())
 
-        help_btn = tk.Label(mid_frame, text="❓", font=("Segoe UI Symbol", 9), bg=BG_COLOR, fg="#8E8E93", cursor="hand2")
+        help_btn = tk.Label(mid_frame, text="❓", font=("Segoe UI Symbol", 10), bg=COLOR_BG, fg=COLOR_ICON, cursor="hand2")
         help_btn.pack(side="right", padx=10)
         help_btn.bind("<Button-1>", lambda e: self._show_help())
-        help_btn.bind("<Enter>", lambda e: help_btn.config(fg="#FFFFFF"))
-        help_btn.bind("<Leave>", lambda e: help_btn.config(fg="#8E8E93"))
+        help_btn.bind("<Enter>", lambda e: help_btn.config(fg=COLOR_ACCENT))
+        help_btn.bind("<Leave>", lambda e: help_btn.config(fg=COLOR_ICON))
 
         self.status_label = tk.Label(
             self.root, 
             text=self.hotkey_manager.get_display_text(), 
             font=("Microsoft JhengHei UI", 8), 
-            bg=BG_COLOR, 
-            fg="#8E8E93"
+            bg=COLOR_BG, 
+            fg=COLOR_ICON
         )
         self.status_label.place(x=8, y=82, width=self.width-16, height=18)
 
@@ -217,21 +238,31 @@ class CardVoiceUI:
 
     def _draw_mic_button(self, active=False):
         self.mic_btn_canvas.delete("all")
-        bg_circle_color = "#2E2E32" if not active else "#1C3552"
-        icon_color = "#55B2FF" if not active else "#FF3B30"
+        bg_circle_color = COLOR_MIC_BG if not active else COLOR_MIC_ACTIVE
+        icon_color = COLOR_ACCENT
         
-        self.mic_btn_canvas.create_oval(2, 2, 44, 44, fill=bg_circle_color, outline="")
+        # 錄音狀態時將整個邊框高亮為水藍色
+        border_color = COLOR_ACCENT if active else COLOR_BORDER
+        border_width = 2 if active else 1
+        
+        self.mic_btn_canvas.create_oval(
+            2, 2, 44, 44, 
+            fill=bg_circle_color, 
+            outline=border_color, 
+            width=border_width
+        )
+            
         mic_symbol = "🎙️" if not active else "⏹️"
         self.mic_btn_canvas.create_text(23, 23, text=mic_symbol, font=("Segoe UI Emoji", 13), fill=icon_color)
 
     def _open_settings_dialog(self):
-        """彈出快捷鍵錄製與重設視窗（螢幕正中央）"""
+        """彈出快捷鍵錄製與重設視窗"""
         dialog = tk.Toplevel(self.root)
         dialog.title("設定快捷鍵")
         
         dialog_width = 280
         dialog_height = 180
-        dialog.configure(bg="#222224")
+        dialog.configure(bg=COLOR_BG)
         dialog.resizable(False, False)
         dialog.attributes("-topmost", True)
 
@@ -241,16 +272,16 @@ class CardVoiceUI:
         center_y = int((screen_height - dialog_height) / 2)
         dialog.geometry(f"{dialog_width}x{dialog_height}+{center_x}+{center_y}")
 
-        tk.Label(dialog, text="目前的快捷鍵：", font=("Microsoft JhengHei UI", 9), bg="#222224", fg="#8E8E93").pack(pady=(12, 2))
+        tk.Label(dialog, text="目前的快捷鍵：", font=("Microsoft JhengHei UI", 9), bg=COLOR_BG, fg=COLOR_ICON).pack(pady=(12, 2))
 
         record_btn = tk.Button(
             dialog, 
             text=self.hotkey_manager.get_display_text(), 
             font=("Segoe UI", 10, "bold"), 
-            bg="#2E2E32", 
-            fg="#55B2FF", 
-            activebackground="#3A3A3E",
-            activeforeground="#55B2FF",
+            bg=COLOR_MIC_BG, 
+            fg=COLOR_ACCENT, 
+            activebackground=COLOR_MIC_ACTIVE,
+            activeforeground=COLOR_ACCENT,
             bd=1, 
             relief="solid",
             width=22,
@@ -258,12 +289,11 @@ class CardVoiceUI:
         )
         record_btn.pack(pady=4, ipady=4)
 
-        tip_label = tk.Label(dialog, text="點擊上方按鈕，按下新快捷鍵組合", font=("Microsoft JhengHei UI", 8), bg="#222224", fg="#8E8E93")
+        tip_label = tk.Label(dialog, text="點擊上方按鈕，按下新快捷鍵組合", font=("Microsoft JhengHei UI", 8), bg=COLOR_BG, fg=COLOR_ICON)
         tip_label.pack(pady=(2, 6))
 
         recording_state = {"is_recording": False, "recorded_keys": [], "pynput_listener": None}
 
-        # 暫停目前的全局熱鍵監聽
         self.hotkey_manager.stop_listener()
 
         def on_dialog_close():
@@ -282,7 +312,7 @@ class CardVoiceUI:
                 return
             if self.hotkey_manager.reset_to_default():
                 display_txt = self.hotkey_manager.get_display_text()
-                record_btn.config(text=display_txt, fg="#55B2FF", bg="#2E2E32")
+                record_btn.config(text=display_txt, fg=COLOR_ACCENT, bg=COLOR_MIC_BG)
                 tip_label.config(text="✓ 已重設為預設 (CTRL+ALT+V)", fg="#34C759")
                 self.status_label.config(text=display_txt)
 
@@ -292,7 +322,7 @@ class CardVoiceUI:
 
             recording_state["is_recording"] = True
             recording_state["recorded_keys"].clear()
-            record_btn.config(text="請按下組合鍵...", fg="#FF9500", bg="#3A3A2E")
+            record_btn.config(text="請按下組合鍵...", fg="#FF9500", bg=COLOR_MIC_ACTIVE)
             tip_label.config(text="按下所有按鍵後，全部放開即儲存", fg="#FF9500")
 
             def parse_key(key):
@@ -306,36 +336,23 @@ class CardVoiceUI:
                 else:
                     if hasattr(key, 'vk') and key.vk:
                         vk = key.vk
-                        # 1. 主鍵盤數字 0-9 (48-57)
-                        if 48 <= vk <= 57:
-                            return chr(vk)
-                        # 2. 九宮格數字 0-9 (96-105)
-                        if 96 <= vk <= 105:
-                            return str(vk - 96)
-                        # 3. 英文字母 A-Z (65-90)
-                        if 65 <= vk <= 90:
-                            return chr(vk).lower()
+                        if 48 <= vk <= 57: return chr(vk)
+                        if 96 <= vk <= 105: return str(vk - 96)
+                        if 65 <= vk <= 90: return chr(vk).lower()
 
-                        # 4. 常見標點符號 VK Code 手動映射
                         symbol_vk_map = {
                             186: ';', 187: '=', 188: ',', 189: '-', 190: '.', 191: '/',
                             192: '`', 219: '[', 220: '\\', 221: ']', 222: "'"
                         }
-                        if vk in symbol_vk_map:
-                            return symbol_vk_map[vk]
+                        if vk in symbol_vk_map: return symbol_vk_map[vk]
 
-                        # 5. 利用 WinAPI 動態轉碼
                         try:
                             char_code = ctypes.windll.user32.MapVirtualKeyW(vk, 2)
-                            if char_code > 0:
-                                return chr(char_code).lower()
-                        except Exception:
-                            pass
+                            if char_code > 0: return chr(char_code).lower()
+                        except Exception: pass
 
-                    # 6. 無 VK 碼時的備用處理
                     if hasattr(key, 'char') and key.char:
-                        if ord(key.char) < 32:
-                            return chr(ord(key.char) + 96)
+                        if ord(key.char) < 32: return chr(ord(key.char) + 96)
                         return key.char.lower()
                 return None
 
@@ -350,13 +367,10 @@ class CardVoiceUI:
 
                 keys = recording_state["recorded_keys"]
                 if keys:
-                    # 定義標準修飾鍵順序 (CTRL -> ALT -> SHIFT -> CMD)
                     mod_order = {"<ctrl>": 1, "<alt>": 2, "<shift>": 3, "<cmd>": 4}
-
                     modifiers = [k for k in keys if k in mod_order]
                     normal_keys = [k for k in keys if k not in mod_order]
 
-                    # 按標準權重排序
                     modifiers.sort(key=lambda x: mod_order.get(x, 99))
                     normal_keys.sort()
 
@@ -369,11 +383,11 @@ class CardVoiceUI:
 
                     if self.hotkey_manager.update_hotkey(new_hotkey_str):
                         display_txt = self.hotkey_manager.get_display_text()
-                        record_btn.config(text=display_txt, fg="#34C759", bg="#2E2E32")
+                        record_btn.config(text=display_txt, fg="#34C759", bg=COLOR_MIC_BG)
                         tip_label.config(text="✓ 設定成功！", fg="#34C759")
                         self.status_label.config(text=display_txt)
                     else:
-                        record_btn.config(text="錯誤", fg="#FF3B30", bg="#2E2E32")
+                        record_btn.config(text="錯誤", fg="#FF3B30", bg=COLOR_MIC_BG)
                         tip_label.config(text="不支援的組合，請重試", fg="#FF3B30")
                         self.hotkey_manager._start_listener()
 
@@ -389,9 +403,9 @@ class CardVoiceUI:
             dialog, 
             text="重設為預設值", 
             font=("Microsoft JhengHei UI", 8), 
-            bg="#222224", 
-            fg="#8E8E93", 
-            activebackground="#222224",
+            bg=COLOR_BG, 
+            fg=COLOR_ICON, 
+            activebackground=COLOR_BG,
             activeforeground="#FF3B30",
             bd=0, 
             cursor="hand2",
@@ -451,7 +465,7 @@ class CardVoiceUI:
                 state, msg, color = self.ui_queue.get_nowait()
                 
                 if msg:
-                    self.status_label.config(text=msg, fg=color if color else "#8E8E93")
+                    self.status_label.config(text=msg, fg=color if color else COLOR_ICON)
                 
                 if state == "LISTENING":
                     self._draw_mic_button(active=True)
@@ -472,7 +486,6 @@ class VoiceInputApp:
         
         chrome_options = Options()
         chrome_options.add_argument("--app=https://www.google.com")
-        # 將初始位置移到極遠螢幕外，且尺寸設至最小 1x1，防止畫面對齊建立圖標
         chrome_options.add_argument("--window-position=-32000,-32000")
         chrome_options.add_argument("--window-size=1,1")
         chrome_options.add_argument("--use-fake-ui-for-media-stream")
@@ -483,7 +496,6 @@ class VoiceInputApp:
         chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
 
         self.driver = webdriver.Chrome(options=chrome_options)
-        # 啟動瞬間即調用隱藏，移除延遲
         self._hide_chrome_window()
 
         self.driver.execute_cdp_cmd("Browser.grantPermissions", {
@@ -503,7 +515,6 @@ class VoiceInputApp:
 
     def _hide_chrome_window(self):
         try:
-            # 立即獲取 Chrome 句柄並強制執行 SW_HIDE (0)，徹底消去工作列圖標
             hwnd = ctypes.windll.user32.FindWindowW(None, self.driver.title)
             if not hwnd:
                 hwnd = ctypes.windll.user32.GetForegroundWindow()
@@ -522,7 +533,7 @@ class VoiceInputApp:
             print(f"[警告] 關閉 Chrome 時發生例外: {e}")
 
     def _reset_status_message(self):
-        self.ui_queue.put(("IDLE", self.hotkey_manager.get_display_text(), "#8E8E93"))
+        self.ui_queue.put(("IDLE", self.hotkey_manager.get_display_text(), COLOR_ICON))
 
     def _get_current_text(self):
         try:
@@ -539,7 +550,9 @@ class VoiceInputApp:
             self.reset_timer.cancel()
 
         try:
-            self.ui_queue.put(("LISTENING", "聆聽中...", "#55B2FF"))
+            # 播放開始錄音提示音
+            play_sound("start")
+            self.ui_queue.put(("LISTENING", "聆聽中...", COLOR_ACCENT))
 
             self.driver.get("https://www.google.com")
 
@@ -569,6 +582,8 @@ class VoiceInputApp:
                 recognized_text = self._get_current_text()
 
             if recognized_text:
+                # 播放完成輸入提示音
+                play_sound("success")
                 self.ui_queue.put(("IDLE", f"✨ {recognized_text}", "#34C759"))
                 self.kb_controller.type(recognized_text)
             else:
@@ -576,7 +591,7 @@ class VoiceInputApp:
 
         except Exception as e:
             print(f"[系統提示]: {e}")
-            self.ui_queue.put(("IDLE", self.hotkey_manager.get_display_text(), "#8E8E93"))
+            self.ui_queue.put(("IDLE", self.hotkey_manager.get_display_text(), COLOR_ICON))
         finally:
             self.is_processing = False
             self.stop_event.clear()
