@@ -90,9 +90,7 @@ pip install -r requirements.txt
 ### 3. 打包成 EXE
 
 ```bash
-pyinstaller --noconfirm --onefile --windowed \
-  --hidden-import=selenium.webdriver.chrome.webdriver \
-  -i app.ico main.pyw
+pyinstaller --noconfirm --onefile --windowed --hidden-import=selenium.webdriver.chrome.webdriver -i app.ico main.pyw
 ```
 
 **參數說明**
