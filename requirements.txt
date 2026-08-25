@@ -1,0 +1,6 @@
+selenium>=4.0.0
+pynput>=1.7.6
+pystray>=0.19.5
+Pillow>=9.0.0
+PyInstaller>=5.0
+webdriver-manager>=3.8.0

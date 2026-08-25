@@ -1,121 +1,132 @@
 # 粵語語音輸入法
 
-<br>
-
 [![Latest Release](https://img.shields.io/badge/version-v1.5-green?style=flat&logo=github)](https://github.com/shamough1792/CantoneseVoiceInput/releases/tag/v1.5)
 [![Python](https://img.shields.io/badge/python-3.8+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 ![License](https://img.shields.io/badge/license-MIT-orange?style=flat)
 
-<br>
-
 基於 Chrome 語音識別技術開發的輕量化桌面粵語語音輸入工具。支援浮動卡片介面、動態熱鍵設定、自動打字輸入。
-
-<br>
 
 ## ✨ 功能特點
 
-<br>
-
-- **語音輸入**：按下 `Ctrl+Alt+V` 或點擊麥克風圖標開始語音識別
-- **懸浮界面**：膠囊式設計，不佔用工作空間
-- **自動貼上**：識別的文字自動貼上到當前游標位置
-- **系統托盤**：從托盤圖標隨時顯示/隱藏
-- **拖動定位**：可隨意拖動懸浮欄到螢幕任何位置
-- **背景運行**：最小化至系統托盤，不干擾工作
-  
-<br>
+- 🎤 **語音輸入** — 按下 `Ctrl+Alt+V` 或點擊麥克風開始識別
+- 💬 **懸浮卡片** — 膠囊式設計，不佔工作空間，隨意拖動
+- ⌨️ **自動輸入** — 識別的文字直接打到游標位置
+- 🗂️ **系統托盤** — 後台運行，點擊托盤圖標可快速顯示/隱藏
+- 🔧 **動態熱鍵** — 在 UI 內自訂快捷鍵組合
+- 🔌 **即插即用** — 下載即用，無需額外配置
 
 ## 🚀 快速開始
 
-<br>
+### 下載執行
 
-### 下載安裝
 1. 從 [Releases](https://github.com/shamough1792/CantoneseVoiceInput/releases) 下載最新 `CantoneseVoiceInput.exe`
-2. 直接執行（無需安裝）
-
-<br>
+2. 雙擊執行（無需安裝）
+3. 允許麥克風權限提示
 
 ### 首次使用
-- 程式啟動後會顯示懸浮工具欄
-- 點擊 🎙️ 或按 `Ctrl+Alt+V` 開始語音輸入
-- 清晰地說出廣東話
-- 識別的文字會自動出現在當前游標位置
 
-<br>
+1. 程式啟動後在右下角顯示懸浮工具欄
+2. 點擊 🎙️ 或按 `Ctrl+Alt+V` 開始錄音
+3. 清晰地說出廣東話
+4. 識別結果自動輸入到游標位置
 
 ## 🎮 操作指南
 
-<br>
-
 | 操作 | 方法 |
 |------|------|
-| 開始/停止錄音 | 點擊 🎙️ 按鈕或按 `Ctrl+Alt+V` |
-| 隱藏至托盤 | 點擊 ✕ 按鈕 |
-| 從托盤顯示 | 點擊系統托盤圖標 |
+| 開始/停止錄音 | 點擊 🎙️ 按鈕 或 按 `Ctrl+Alt+V` |
+| 自訂熱鍵 | 點擊 ⚙️ 設定按鈕，按下新組合鍵 |
+| 查看幫助 | 點擊 ❓ 按鈕 |
+| 隱藏卡片 | 點擊 ✕ 按鈕（自動最小化至托盤） |
+| 恢復卡片 | 點擊系統托盤麥克風圖標 |
 | 退出程式 | 右鍵托盤圖標 → 「退出程式」 |
-| 移動位置 | 拖動懸浮欄任意位置 |
-
-<br>
+| 移動卡片位置 | 拖動卡片標題欄到任意位置 |
 
 ## 🛠️ 系統需求
 
-<br>
+| 項目 | 要求 |
+|------|------|
+| **作業系統** | Windows 10/11 64-bit |
+| **Chrome** | 已安裝並版本 >= 90 |
+| **麥克風** | 可正常使用的裝置 |
+| **網絡** | 需要網絡連線（用於語音識別） |
+| **記憶體** | 建議 2GB 以上 |
 
-- **作業系統**：Windows 10/11
-- **瀏覽器**：Google Chrome（語音識別需要）
-- **麥克風**：可正常使用的麥克風
-- **網絡**：需要網絡連線進行語音處理
+## 📦 從源碼構建
 
-<br>
+適合開發者或想自訂功能的用戶。
 
-## 🛠️ 開發與建構 (Building from Source)
+### 1. 環境準備
 
-<br>
+確保已安裝 Python 3.8+，然後安裝依賴：
 
-如果你希望從原始碼自行編譯打包成獨立的 `.exe` 執行檔，請依照以下步驟操作：
-
-### 1. 安裝依賴套件
-確保已安裝 Python 3.8+，並執行以下指令安裝所需庫：
-
+**快速安裝（推薦）**
 ```bash
-pip install selenium pynput pystray pillow PyInstaller
+# Windows 用戶雙擊
+install.bat
 ```
 
-<br>
-
-### 2. 準備圖示檔
-將專案所需的圖示檔案 app.ico 放至專案根目錄下。
-
-<br>
-
-### 3. 執行 PyInstaller 打包
-使用以下指令進行單一檔案（One-file）及無控制台視窗（Windowed）的編譯打包：
-
+**手動安裝**
 ```bash
-pyinstaller --noconfirm --onefile --windowed --hidden-import=selenium.webdriver.chrome.webdriver -i app.ico main.pyw
+pip install -r requirements.txt
 ```
 
-<br>
+依賴說明：
+| 套件 | 版本 | 用途 |
+|------|------|------|
+| `selenium` | >=4.0.0 | Web 自動化引擎 |
+| `pynput` | >=1.7.6 | 全局熱鍵監聽 + 鍵盤輸入模擬 |
+| `pystray` | >=0.19.5 | 系統托盤功能 |
+| `Pillow` | >=9.0.0 | 托盤圖示生成 |
+| `PyInstaller` | >=5.0 | 打包成 `.exe` |
+| `webdriver-manager` | >=3.8.0 | **自動管理 Chrome Driver**（新增優化） |
 
-說明：
+> ⚡ **`webdriver-manager` 優勢** — 自動偵測 Chrome 版本並下載相應 Driver，無需手動配置驅動版本對應關係，解決版本失配問題。
 
---onefile：將所有依賴打包為單一 .exe 檔。
+### 2. 準備資源
 
---windowed：隱藏 CMD 主控台視窗。
+將 `app.ico` 放至專案根目錄（已包含在源碼中）。
 
---hidden-import=selenium.webdriver.chrome.webdriver：確保 Selenium Chrome Driver 正確載入。
+### 3. 打包成 EXE
 
--i app.ico：指定產出的應用程式圖示。
+```bash
+pyinstaller --noconfirm --onefile --windowed \
+  --hidden-import=selenium.webdriver.chrome.webdriver \
+  -i app.ico main.pyw
+```
 
-編譯完成後，產生的執行檔將存放在 dist/ 資料夾中。
+**參數說明**
+- `--onefile` — 打包為單一 `.exe` 檔（首次運行會解壓到臨時目錄）
+- `--windowed` — 隱藏 CMD 控制台視窗
+- `--hidden-import=selenium.webdriver.chrome.webdriver` — 確保 Selenium 內部模組正確載入
+- `-i app.ico` — 設定應用圖示
 
+生成的 `.exe` 位於 `dist/` 資料夾。
 
-<br>
+## 🔧 疑難排解
 
-## 📄 授權 (License)
+| 問題 | 解決方案 |
+|------|--------|
+| **「Chrome 驅動版本不符」** | 自動處理：`webdriver-manager` 已集成，無需手動下載 |
+| **「麥克風無法錄音」** | 檢查系統設定 → 隱私 → 麥克風，確保應用有權限；或重啟 Chrome 程序 |
+| **「Chrome 程序異常」** | 應用會自動偵測並重啟 Chrome（v1.5+ 新增） |
+| **「語音識別無反應」** | 確認網絡連線正常；檢查是否按住熱鍵或點擊麥克風按鈕 |
+| **「卡片卡頓或閃爍」** | 嘗試重啟應用或更新 Chrome 瀏覽器 |
 
-<br>
+## 📋 技術棧
+
+- **GUI** — Tkinter（原生 Windows 介面）
+- **自動化** — Selenium + Chrome WebDriver
+- **系統整合** — pynput（全局熱鍵）、pystray（托盤）、ctypes（Windows API）
+- **輸入模擬** — pynput KeyboardController
+- **打包** — PyInstaller
+- **驅動管理** — webdriver-manager ✨
+
+## 📄 授權
 
 本專案採用 [MIT License](LICENSE) 開源。
 
-<br>
+---
+
+**貢獻** — 歡迎提交 Issue 或 Pull Request！  
+**反饋** — 如遇任何問題，請在 [GitHub Issues](https://github.com/shamough1792/CantoneseVoiceInput/issues) 回報。

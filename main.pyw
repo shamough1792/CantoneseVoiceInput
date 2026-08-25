@@ -13,8 +13,10 @@ from pynput.keyboard import Controller as KeyboardController, Key
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
 
 import pystray
 from PIL import Image, ImageDraw
@@ -531,23 +533,26 @@ class VoiceInputApp:
         self.ui_queue = ui_queue
         self.hotkey_manager = hotkey_manager
         self.kb_controller = KeyboardController()
-        
+        self.driver = None
+        self._initialize_driver()
+
+    def _initialize_driver(self):
         chrome_options = Options()
         chrome_options.add_argument("--app=https://www.google.com.hk")
         chrome_options.add_argument("--window-position=-32000,-32000")
         chrome_options.add_argument("--window-size=1,1")
-        
+
         # 強制語音鎖定廣東話 zh-HK
         chrome_options.add_argument("--lang=zh-HK")
         chrome_options.add_experimental_option("prefs", {
             "intl.accept_languages": "zh-HK,zh",
             "profile.default_content_setting_values.media_stream_mic": 1
         })
-        
+
         chrome_options.add_argument("--use-fake-ui-for-media-stream")
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        
+
         # 記憶體安全優化參數
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--disable-software-rasterizer")
@@ -556,28 +561,37 @@ class VoiceInputApp:
         chrome_options.add_argument("--renderer-process-limit=1")
         chrome_options.add_argument("--no-first-run")
         chrome_options.add_argument("--no-default-browser-check")
-        
+
         user_data_dir = os.path.join(os.environ['LOCALAPPDATA'], 'Google', 'Chrome', 'User Data VoiceAppFix')
         chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
 
-        self.driver = webdriver.Chrome(options=chrome_options)
-        self._hide_chrome_window()
+        try:
+            service = Service(ChromeDriverManager().install())
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            self._hide_chrome_window()
+            self._setup_permissions()
+        except Exception as e:
+            print(f"[錯誤] Chrome 驅動初始化失敗: {e}")
+            raise
 
-        self.driver.execute_cdp_cmd("Browser.grantPermissions", {
-            "origin": "https://www.google.com.hk",
-            "permissions": ["audioCapture"]
-        })
-        self.driver.execute_cdp_cmd("Browser.grantPermissions", {
-            "origin": "https://www.google.com",
-            "permissions": ["audioCapture"]
-        })
+    def _setup_permissions(self):
+        """設置麥克風權限"""
+        try:
+            self.driver.execute_cdp_cmd("Browser.grantPermissions", {
+                "origin": "https://www.google.com.hk",
+                "permissions": ["audioCapture"]
+            })
+            self.driver.execute_cdp_cmd("Browser.grantPermissions", {
+                "origin": "https://www.google.com",
+                "permissions": ["audioCapture"]
+            })
+            self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            })
+        except Exception as e:
+            print(f"[警告] 權限設置失敗: {e}")
 
-        self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-            "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-        })
-        
         self.wait = WebDriverWait(self.driver, 10)
-        
         self.is_processing = False
         self.stop_event = threading.Event()
         self.reset_timer = None
@@ -669,7 +683,31 @@ class VoiceInputApp:
             self.reset_timer = threading.Timer(3.0, self._reset_status_message)
             self.reset_timer.start()
 
+    def _ensure_driver_alive(self):
+        """檢查 Chrome 程序是否存活，若崩潰自動重啟"""
+        if not self.driver:
+            return False
+        try:
+            self.driver.execute_script("return 1")
+            return True
+        except Exception as e:
+            print(f"[警告] Chrome 程序異常: {e}，重啟中...")
+            try:
+                self.driver.quit()
+            except Exception:
+                pass
+            try:
+                self._initialize_driver()
+                return True
+            except Exception as e:
+                print(f"[錯誤] Chrome 重啟失敗: {e}")
+                self.ui_queue.put(("IDLE", "❌ Chrome 崩潰", "#FF3B30"))
+                return False
+
     def trigger_speech(self):
+        if not self._ensure_driver_alive():
+            return
+
         if self.is_processing:
             self.stop_event.set()
             return
