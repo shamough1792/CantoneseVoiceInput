@@ -385,7 +385,7 @@ class CardVoiceUI:
                         display_txt = self.hotkey_manager.get_display_text()
                         record_btn.config(text=display_txt, fg="#107c10", bg=COLOR_MIC_BG)
 
-                        tip_label.config(text="✓ 設定成功！", fg="#34C759")
+                        tip_label.config(text="✓ 設定成功！", fg="#107c10")
                         self.status_label.config(text=display_txt)
                     else:
                         record_btn.config(text="錯誤", fg="#d13438", bg=COLOR_MIC_BG)
