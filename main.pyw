@@ -561,6 +561,7 @@ class VoiceInputApp:
         self.hotkey_manager = hotkey_manager
         self.kb_controller = KeyboardController()
         self.driver = None
+        self.copy_to_clipboard = load_config().get("copy_to_clipboard", False)
         self._initialize_driver()
 
     def _initialize_driver(self):
@@ -642,6 +643,10 @@ class VoiceInputApp:
         except Exception as e:
             print(f"[警告] 關閉 Chrome 時發生例外: {e}")
 
+    def set_copy_to_clipboard(self, value):
+        self.copy_to_clipboard = bool(value)
+        save_config({"copy_to_clipboard": self.copy_to_clipboard})
+
     def _reset_status_message(self):
         self.ui_queue.put(("IDLE", self.hotkey_manager.get_display_text(), COLOR_ICON))
 
@@ -692,9 +697,12 @@ class VoiceInputApp:
 
             if recognized_text:
                 play_sound("success")
-                
+
+                if self.copy_to_clipboard:
+                    self.ui_queue.put(("CLIPBOARD", recognized_text))
+
                 display_text = recognized_text if len(recognized_text) <= 12 else recognized_text[:12] + "..."
-                
+
                 self.ui_queue.put(("IDLE", f"✨ {display_text}", "#107c10"))
 
                 self.kb_controller.type(recognized_text)
