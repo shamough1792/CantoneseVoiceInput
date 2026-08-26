@@ -128,10 +128,11 @@ class DynamicHotkeyManager:
         return readable
 
 class CardVoiceUI:
-    def __init__(self, ui_queue, on_mic_click_callback, hotkey_manager, on_close_callback=None):
+    def __init__(self, ui_queue, on_mic_click_callback, hotkey_manager, app, on_close_callback=None):
         self.ui_queue = ui_queue
         self.on_mic_click = on_mic_click_callback
         self.hotkey_manager = hotkey_manager
+        self.app = app
         self.on_close_callback = on_close_callback
         self.root = None
         self.mic_btn_canvas = None
@@ -278,7 +279,7 @@ class CardVoiceUI:
         dialog.title("設定快捷鍵")
         
         dialog_width = 286
-        dialog_height = 184
+        dialog_height = 214
         dialog.configure(bg=COLOR_BG)
         dialog.resizable(False, False)
         dialog.attributes("-topmost", True)
@@ -419,6 +420,16 @@ class CardVoiceUI:
 
         record_btn.config(command=start_recording)
 
+        clip_var = tk.BooleanVar(value=self.app.copy_to_clipboard)
+        cb = tk.Checkbutton(
+            dialog, text="辨識後自動複製到剪貼簿",
+            variable=clip_var, bg=COLOR_BG, fg=COLOR_ICON,
+            activebackground=COLOR_BG, activeforeground=COLOR_ICON,
+            selectcolor=COLOR_MIC_BG, font=("Microsoft JhengHei UI", 9),
+            command=lambda: self.app.set_copy_to_clipboard(clip_var.get())
+        )
+        cb.pack(pady=(2, 2))
+
         reset_btn = tk.Button(
             dialog, 
             text="重設為預設值", 
@@ -460,10 +471,11 @@ class CardVoiceUI:
         title_label.pack(pady=(15, 10))
 
         current_hotkey = self.hotkey_manager.get_display_text()
+        copy_note = "並複製至剪貼簿" if self.app.copy_to_clipboard else ""
         help_text = (
             f"1. 按下快捷鍵 ({current_hotkey}) 開始錄音\n"
             "2. 對著麥克風講廣東話\n"
-            "3. 識別後將自動輸入至游標位置\n"
+            f"3. 識別後將自動輸入至游標位置{copy_note}\n"
             "4. 點擊 ✕ 可隱藏浮窗，由右下角托盤重啟"
         )
         
@@ -539,7 +551,20 @@ class CardVoiceUI:
     def _check_queue(self):
         try:
             while not self.ui_queue.empty():
-                state, msg, color = self.ui_queue.get_nowait()
+                item = self.ui_queue.get_nowait()
+
+                # 處理複製到剪貼簿的要求
+                if isinstance(item, tuple) and item[0] == "CLIPBOARD":
+                    text_to_copy = item[1]
+                    try:
+                        self.root.clipboard_clear()
+                        self.root.clipboard_append(text_to_copy)
+                        self.root.update()
+                    except Exception as clip_err:
+                        print(f"[剪貼簿錯誤]: {clip_err}")
+                    continue
+
+                state, msg, color = item
                 
                 if msg:
                     self.status_label.config(text=msg, fg=color if color else COLOR_ICON)
@@ -786,9 +811,10 @@ if __name__ == "__main__":
         app = VoiceInputApp(ui_queue, hotkey_manager)
         
         input_bar = CardVoiceUI(
-            ui_queue, 
+            ui_queue,
             on_mic_click_callback=app.trigger_speech,
             hotkey_manager=hotkey_manager,
+            app=app,
             on_close_callback=app.quit
         )
 
