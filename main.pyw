@@ -1,6 +1,7 @@
 import time
 import re
 import os
+import json
 import ctypes
 import threading
 import queue
@@ -23,6 +24,25 @@ from PIL import Image, ImageDraw
 
 GWL_EXSTYLE = -20
 WS_EX_NOACTIVATE = 0x08000000
+
+DEFAULT_CONFIG = {"copy_to_clipboard": False}
+CONFIG_DIR = os.path.join(os.environ['LOCALAPPDATA'], 'CantoneseVoiceInput')
+
+def load_config():
+    try:
+        with open(os.path.join(CONFIG_DIR, 'config.json'), 'r', encoding='utf-8') as f:
+            return {**DEFAULT_CONFIG, **json.load(f)}
+    except Exception:
+        return dict(DEFAULT_CONFIG)
+
+def save_config(config):
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        with open(os.path.join(CONFIG_DIR, 'config.json'), 'w', encoding='utf-8') as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[設定] 無法儲存設定檔: {e}")
+
 
 # 主題配色定義 (Windows 風格深色介面)
 COLOR_BG = "#1f1f1f"         # 主背景深灰
