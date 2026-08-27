@@ -14,4 +14,3 @@ venv/
 .vscode/
 *.log
 .claude/
-docs/
