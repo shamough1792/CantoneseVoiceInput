@@ -1,6 +1,6 @@
 # 粵語語音輸入法
 
-[![Latest Release](https://img.shields.io/badge/version-v1.5-green?style=flat&logo=github)](https://github.com/shamough1792/CantoneseVoiceInput/releases/tag/v1.5)
+[![Latest Release](https://img.shields.io/badge/version-v1.6-green?style=flat&logo=github)](https://github.com/shamough1792/CantoneseVoiceInput/releases/tag/v1.6)
 [![Python](https://img.shields.io/badge/python-3.8+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 ![License](https://img.shields.io/badge/license-MIT-orange?style=flat)
 
@@ -16,6 +16,7 @@
 - ⌨️ **自動輸入** — 識別的文字直接打到游標位置
 - 🗂️ **系統托盤** — 後台運行，點擊托盤圖標可快速顯示/隱藏
 - 🔧 **動態熱鍵** — 在 UI 內自訂快捷鍵組合
+- 🛡️ **抗改版識別** — 直接採用 Chrome 內建 Web Speech API，事件驅動取得識別結果，不再依賴 Google 網頁結構（v1.6+）
 - 🔌 **即插即用** — 下載即用，無需額外配置
 
 ## 🚀 快速開始
@@ -111,13 +112,14 @@ pyinstaller --noconfirm --onefile --windowed --hidden-import=selenium.webdriver.
 | **「Chrome 驅動版本不符」** | 自動處理：`webdriver-manager` 已集成，無需手動下載 |
 | **「麥克風無法錄音」** | 檢查系統設定 → 隱私 → 麥克風，確保應用有權限；或重啟 Chrome 程序 |
 | **「Chrome 程序異常」** | 應用會自動偵測並重啟 Chrome（v1.5+ 新增） |
-| **「語音識別無反應」** | 確認網絡連線正常；檢查是否按住熱鍵或點擊麥克風按鈕 |
+| **「語音識別無反應」** | 確認網絡連線正常；檢查系統設定 → 隱私 → 麥克風權限是否允許；或重啟應用 |
 | **「卡片卡頓或閃爍」** | 嘗試重啟應用或更新 Chrome 瀏覽器 |
 
 ## 📋 技術棧
 
 - **GUI** — Tkinter（原生 Windows 介面）
-- **自動化** — Selenium + Chrome WebDriver
+- **語音識別** — Chrome Web Speech API（`webkitSpeechRecognition`，直接呼叫、事件驅動，v1.6+）
+- **自動化** — Selenium + Chrome WebDriver（頁面載入與麥克風權限管理）
 - **系統整合** — pynput（全局熱鍵）、pystray（托盤）、ctypes（Windows API）
 - **輸入模擬** — pynput KeyboardController
 - **打包** — PyInstaller
