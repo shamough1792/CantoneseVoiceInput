@@ -114,6 +114,16 @@ pyinstaller --noconfirm --onefile --windowed --hidden-import=selenium.webdriver.
 | **「語音識別無反應」** | 確認網絡連線正常；檢查系統設定 → 隱私 → 麥克風權限是否允許；或重啟應用 |
 | **「卡片卡頓或閃爍」** | 嘗試重啟應用或更新 Chrome 瀏覽器 |
 
+## 🧰 維護與診斷
+
+新增維護工具 `tools/spike_realmic.py`：當 Chrome/Google 改版導致識別異常時，可用來快速診斷語音通道是否正常。
+
+```bash
+python tools/spike_realmic.py
+```
+
+在一般桌面視窗執行，並對麥克風說一句粵語。若成功印出識別文字，代表語音通道正常，問題應在程式邏輯；若出現 `no-speech`、`network` 等錯誤，則可能是 Chrome/Google、權限或網路問題。
+
 ## 📋 技術棧
 
 - **GUI** — Tkinter（原生 Windows 介面）
