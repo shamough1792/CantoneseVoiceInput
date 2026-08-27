@@ -54,9 +54,17 @@ def play_sound(sound_type="start"):
     def _play():
         try:
             if sound_type == "start":
-                winsound.PlaySound("Notification.Default", winsound.SND_ALIAS | winsound.SND_ASYNC)
+                winsound.Beep(784, 100)          # 「叮」高音
+                time.sleep(0.08)
+                winsound.Beep(523, 150)          # 「嘟」低音，下沉開始提示
             elif sound_type == "success":
-                winsound.PlaySound("SystemNotification", winsound.SND_ALIAS | winsound.SND_ASYNC)
+                winsound.Beep(880, 120)
+                time.sleep(0.08)
+                winsound.Beep(1100, 150)         # 兩聲漸高「叮叮」，完成感
+            elif sound_type == "fail":
+                winsound.Beep(440, 120)
+                time.sleep(0.07)
+                winsound.Beep(330, 200)          # 低「咚」兩聲，未聽清/失敗提示
         except Exception:
             pass
     threading.Thread(target=_play, daemon=True).start()
@@ -216,7 +224,7 @@ class CardVoiceUI:
             font=("Microsoft JhengHei UI", 8),
             bg=COLOR_BG,
             fg=COLOR_ICON,
-            anchor="w"
+            anchor="center"
         )
         self.status_label.place(x=10, y=83, width=self.width-20, height=18)
 
@@ -738,14 +746,18 @@ class VoiceInputApp:
 
                 self.kb_controller.type(recognized_text)
             elif error == "no-speech":
+                play_sound("fail")
                 self.ui_queue.put(("IDLE", "⚠️ 未聽清", "#c19c00"))
             elif error in ("not-allowed", "service-not-allowed"):
+                play_sound("fail")
                 self.ui_queue.put(("IDLE", "❌ 麥克風權限被拒", "#d13438"))
             elif error == "network":
+                play_sound("fail")
                 self.ui_queue.put(("IDLE", "❌ 無法連線識別", "#d13438"))
             elif error == "aborted":
                 self.ui_queue.put(("IDLE", self.hotkey_manager.get_display_text(), COLOR_ICON))
             else:
+                play_sound("fail")
                 self.ui_queue.put(("IDLE", "⚠️ 識別失敗", "#c19c00"))
 
         except Exception as e:
