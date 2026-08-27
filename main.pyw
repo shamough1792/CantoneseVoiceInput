@@ -1,5 +1,4 @@
 import time
-import re
 import os
 import json
 import ctypes
@@ -12,11 +11,9 @@ import traceback
 from pynput import keyboard
 from pynput.keyboard import Controller as KeyboardController, Key
 from selenium import webdriver
-from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
 import pystray
@@ -64,8 +61,7 @@ def play_sound(sound_type="start"):
             pass
     threading.Thread(target=_play, daemon=True).start()
 
-def is_garbage_token(text):
-    return bool(len(text) > 30 and re.match(r'^[A-Za-z0-9_\-]+$', text))
+
 
 def create_tray_icon_image():
     width, height = 32, 32
@@ -675,15 +671,44 @@ class VoiceInputApp:
     def _reset_status_message(self):
         self.ui_queue.put(("IDLE", self.hotkey_manager.get_display_text(), COLOR_ICON))
 
-    def _get_current_text(self):
-        try:
-            search_box = self.driver.find_element(By.NAME, "q")
-            val = search_box.get_attribute("value").strip()
-            if val and not is_garbage_token(val):
-                return val
-        except Exception:
-            pass
-        return ""
+    SPEECH_JS = r"""
+    window.__voiceResult = { done: false, transcript: '', error: '' };
+    (function () {
+      var rec = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+      rec.lang = 'zh-HK';
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+      rec.onresult = function (e) {
+        var t = '';
+        for (var i = 0; i < e.results.length; i++) {
+          if (e.results[i].length) t += e.results[i][0].transcript;
+        }
+        window.__voiceResult = { done: true, transcript: t, error: '' };
+      };
+      rec.onerror = function (e) {
+        window.__voiceResult = { done: true, transcript: '', error: e.error };
+      };
+      rec.onend = function () {
+        if (!window.__voiceResult.done) {
+          window.__voiceResult = { done: true, transcript: '', error: 'no-speech' };
+        }
+      };
+      rec.start();
+    })();
+    """
+
+    def _capture_speech(self):
+        """直接呼叫 webkitSpeechRecognition，事件驅動取得辨識文字（最多約 12 秒）。"""
+        self.driver.execute_script(self.SPEECH_JS)
+        result = {"done": False, "transcript": "", "error": ""}
+        for _ in range(60):
+            if self.stop_event.is_set():
+                return "", "aborted"
+            time.sleep(0.2)
+            result = self.driver.execute_script("return window.__voiceResult;")
+            if result.get("done"):
+                break
+        return result.get("transcript", ""), result.get("error", "")
 
     def _process_speech(self):
         if self.reset_timer:
@@ -698,27 +723,8 @@ class VoiceInputApp:
             if self.stop_event.is_set():
                 return
 
-            mic_button = self.wait.until(
-                EC.element_to_be_clickable((By.XPATH, "//*[@aria-label='語音搜尋' or @aria-label='Search by voice']"))
-            )
-            mic_button.click()
-            
-            recognized_text = ""
-            
-            for _ in range(30):
-                if self.stop_event.is_set():
-                    recognized_text = self._get_current_text()
-                    break
-
-                time.sleep(0.5)
-                
-                current_val = self._get_current_text()
-                if current_val:
-                    recognized_text = current_val
-                    break
-
-            if not recognized_text:
-                recognized_text = self._get_current_text()
+            recognized_text, error = self._capture_speech()
+            recognized_text = recognized_text.strip()
 
             if recognized_text:
                 play_sound("success")
@@ -731,9 +737,16 @@ class VoiceInputApp:
                 self.ui_queue.put(("IDLE", f"✨ {display_text}", "#107c10"))
 
                 self.kb_controller.type(recognized_text)
-            else:
+            elif error == "no-speech":
                 self.ui_queue.put(("IDLE", "⚠️ 未聽清", "#c19c00"))
-
+            elif error in ("not-allowed", "service-not-allowed"):
+                self.ui_queue.put(("IDLE", "❌ 麥克風權限被拒", "#d13438"))
+            elif error == "network":
+                self.ui_queue.put(("IDLE", "❌ 無法連線識別", "#d13438"))
+            elif error == "aborted":
+                self.ui_queue.put(("IDLE", self.hotkey_manager.get_display_text(), COLOR_ICON))
+            else:
+                self.ui_queue.put(("IDLE", "⚠️ 識別失敗", "#c19c00"))
 
         except Exception as e:
             print(f"[系統提示]: {e}")
