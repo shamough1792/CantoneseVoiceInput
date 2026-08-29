@@ -1,5 +1,6 @@
 import time
 import os
+import sys
 import json
 import ctypes
 import threading
@@ -49,25 +50,34 @@ COLOR_ICON = "#c8c8c8"       # 圖示與文字預設灰色
 COLOR_MIC_BG = "#2a2a2a"     # 麥克風底圈
 COLOR_MIC_ACTIVE = "#333333"  # 錄音中麥克風底圈
 
-def play_sound(sound_type="start"):
-    """發出輕柔自然的原生系統通知聲"""
+SAMPLE_RATE = 44100
+
+# 資源路徑解析：PyInstaller 凍結後讀 sys._MEIPASS，一般執行讀專案根目錄
+def _resource_path(rel):
+    base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, rel)
+
+# 提示音 WAV 檔（res/ 內嵌，免授權提示音轉為 44100Hz 16-bit mono WAV）
+SOUND_FILES = {
+    "start":   "res/snd_start.wav",
+    "success": "res/snd_success.wav",
+    "fail":    "res/snd_fail.wav",
+}
+
+def _play_wav(path):
+    """背景執行緒播放 WAV 檔；失敗時靜默（檔案缺、格式不支援等）。"""
     def _play():
         try:
-            if sound_type == "start":
-                winsound.Beep(784, 100)          # 「叮」高音
-                time.sleep(0.08)
-                winsound.Beep(523, 150)          # 「嘟」低音，下沉開始提示
-            elif sound_type == "success":
-                winsound.Beep(880, 120)
-                time.sleep(0.08)
-                winsound.Beep(1100, 150)         # 兩聲漸高「叮叮」，完成感
-            elif sound_type == "fail":
-                winsound.Beep(440, 120)
-                time.sleep(0.07)
-                winsound.Beep(330, 200)          # 低「咚」兩聲，未聽清/失敗提示
+            winsound.PlaySound(_resource_path(path), winsound.SND_FILENAME)
         except Exception:
             pass
     threading.Thread(target=_play, daemon=True).start()
+
+def play_sound(sound_type="start"):
+    """播放內嵌的 Google 風格提示音 WAV（res/snd_*.wav）"""
+    path = SOUND_FILES.get(sound_type)
+    if path:
+        _play_wav(path)
 
 
 
