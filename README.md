@@ -1,6 +1,6 @@
 # 粵語語音輸入法
 
-[![Latest Release](https://img.shields.io/badge/version-v1.6-green?style=flat&logo=github)](https://github.com/shamough1792/CantoneseVoiceInput/releases/tag/v1.6)
+[![Latest Release](https://img.shields.io/badge/version-v2.1-green?style=flat&logo=github)](https://github.com/shamough1792/CantoneseVoiceInput/releases/tag/v2.1)
 [![Python](https://img.shields.io/badge/python-3.8+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 ![License](https://img.shields.io/badge/license-MIT-orange?style=flat)
 
@@ -92,8 +92,18 @@ pip install -r requirements.txt
 
 ### 3. 打包成 EXE
 
+使用專案內的 `main.spec`（已設定好提示音資源、圖示與打包參數）：
+
 ```bash
-pyinstaller --noconfirm --onefile --windowed --hidden-import=selenium.webdriver.chrome.webdriver -i app.ico main.pyw
+pyinstaller main.spec --noconfirm
+```
+
+> 💡 `main.spec` 已包含：`--onefile`（單一執行檔）、`--windowed`（隱藏控制台）、`--hidden-import=selenium.webdriver.chrome.webdriver`（確保 Selenium 模組載入）、`-i app.ico`（應用圖示）、以及 `res/*.wav` 提示音資源打包。
+
+**如偏好直接單行指令**（需手動加上音效資源）：
+
+```bash
+pyinstaller --noconfirm --onefile --windowed --hidden-import=selenium.webdriver.chrome.webdriver -i app.ico --add-data "res;res" main.pyw
 ```
 
 **參數說明**
@@ -101,6 +111,7 @@ pyinstaller --noconfirm --onefile --windowed --hidden-import=selenium.webdriver.
 - `--windowed` — 隱藏 CMD 控制台視窗
 - `--hidden-import=selenium.webdriver.chrome.webdriver` — 確保 Selenium 內部模組正確載入
 - `-i app.ico` — 設定應用圖示
+- `--add-data "res;res"` — 將提示音資源資料夾一併打包（Windows 用分號 `;` 分隔）
 
 生成的 `.exe` 位於 `dist/` 資料夾。
 
