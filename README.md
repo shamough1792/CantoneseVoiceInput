@@ -1,6 +1,6 @@
 # 粵語語音輸入法
 
-[![Latest Release](https://img.shields.io/badge/version-v2.1-green?style=flat&logo=github)](https://github.com/shamough1792/CantoneseVoiceInput/releases/tag/v2.1)
+[![Latest Release](https://img.shields.io/badge/version-v2.1.1-green?style=flat&logo=github)](https://github.com/shamough1792/CantoneseVoiceInput/releases/tag/v2.1.1)
 [![Python](https://img.shields.io/badge/python-3.8+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 ![License](https://img.shields.io/badge/license-MIT-orange?style=flat)
 
