@@ -807,6 +807,7 @@ class VoiceInputApp:
             return
 
         if self.is_processing:
+            play_sound("fail")
             self.stop_event.set()
             return
 

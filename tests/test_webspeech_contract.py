@@ -30,3 +30,10 @@ def test_no_name_q_polling_anymore():
 def test_error_mapping_present():
     assert '"no-speech"' in SOURCE
     assert '"not-allowed"' in SOURCE
+
+
+def test_manual_stop_plays_fail_sound():
+    stop_branch = SOURCE[SOURCE.index("if self.is_processing:"):]
+    stop_branch = stop_branch[:stop_branch.index("self.is_processing = True")]
+    assert 'self.stop_event.set()' in stop_branch
+    assert 'play_sound("fail")' in stop_branch

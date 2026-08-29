@@ -58,6 +58,22 @@ SOUND_FILES = {
 - `python -m py_compile main.pyw` 應 exit 0。
 - 真機驗證：實際講一句話聽三種音效是否如預期。
 
+## 手動中止提示音
+
+當使用者在辨識進行中再次按下熱鍵或點擊麥克風，`trigger_speech()` 會設定 `stop_event` 中止目前辨識，並立即播放 `play_sound("fail")`（即 `res/snd_fail.wav`）。狀態列維持原本的熱鍵提示，不新增「已停止」文字。
+
+`_process_speech()` 的 `error == "aborted"` 分支不播放音效，避免同一次手動中止重複播放；自動發生的 `no-speech`、權限拒絕、網路錯誤及其他識別錯誤仍維持原本的失敗音效。
+
+## 元件變更（手動中止）
+
+### `main.pyw`
+- 修改 `VoiceInputApp.trigger_speech()` 的 `self.is_processing` 分支，在設定 `stop_event` 時呼叫 `play_sound("fail")`。
+- 保留 `_process_speech()` 的 `aborted` 分支行為，不新增第二次播放。
+
+### 測試
+- 新增原始碼契約測試，確認手動中止分支同時設定 `stop_event` 並呼叫 `play_sound("fail")`。
+- 確認既有 11 個契約測試仍全 PASS。
+
 ## 不包含
 
 - 不抽共用模組（維持 single-file monolith）。
