@@ -49,6 +49,8 @@ COLOR_ACCENT = "#0078d4"     # Windows 藍色高亮
 COLOR_ICON = "#c8c8c8"       # 圖示與文字預設灰色
 COLOR_MIC_BG = "#2a2a2a"     # 麥克風底圈
 COLOR_MIC_ACTIVE = "#333333"  # 錄音中麥克風底圈
+COLOR_SURFACE = "#252525"     # 卡片與對話框表面
+COLOR_MUTED = "#8f8f8f"       # 次要文字
 
 SAMPLE_RATE = 44100
 
@@ -79,7 +81,19 @@ def play_sound(sound_type="start"):
     if path:
         _play_wav(path)
 
-
+def _apply_rounded_window(window, radius=18):
+    """將無邊框 Toplevel 裁成圓角，使用 Toplevel 自身 HWND。"""
+    try:
+        window.update_idletasks()
+        hwnd = window.winfo_id()
+        width = window.winfo_width()
+        height = window.winfo_height()
+        region = ctypes.windll.gdi32.CreateRoundRectRgn(
+            0, 0, width + 1, height + 1, radius * 2, radius * 2
+        )
+        ctypes.windll.user32.SetWindowRgn(hwnd, region, True)
+    except Exception:
+        pass
 
 def create_tray_icon_image():
     width, height = 32, 32
@@ -141,6 +155,62 @@ class DynamicHotkeyManager:
         readable = self.current_hotkey_str.replace("<", "").replace(">", "").upper()
         return readable
 
+class RoundedButton(tk.Canvas):
+    """輕量圓角按鈕，保留 Tkinter button 的 config / command 用法。"""
+    def __init__(self, parent, text="", command=None, width=220, height=38,
+                 bg=COLOR_SURFACE, fg=COLOR_ICON, radius=10, **kwargs):
+        super().__init__(parent, width=width, height=height, bg=parent.cget("bg"),
+                         highlightthickness=0, bd=0, cursor="hand2")
+        self._text = text
+        self._button_bg = bg
+        self._button_fg = fg
+        self._command = command
+        self._radius = radius
+        self._button_width = width
+        self._button_height = height
+        self._draw()
+        self.bind("<Button-1>", self._invoke)
+
+    def _draw(self):
+        self.delete("all")
+        width = self._button_width
+        height = self._button_height
+        r = min(self._radius, height // 2, width // 2)
+        fill = self._button_bg
+        self.create_rectangle(r, 0, width - r, height, fill=fill, outline="")
+        self.create_rectangle(0, r, width, height - r, fill=fill, outline="")
+        self.create_oval(0, 0, r * 2, r * 2, fill=fill, outline="")
+        self.create_oval(width - r * 2, 0, width, r * 2, fill=fill, outline="")
+        self.create_oval(0, height - r * 2, r * 2, height, fill=fill, outline="")
+        self.create_oval(width - r * 2, height - r * 2, width, height, fill=fill, outline="")
+        self.create_text(width // 2, height // 2, text=self._text,
+                         fill=self._button_fg, font=("Microsoft JhengHei UI", 9, "bold"))
+
+    def _invoke(self, _event=None):
+        if self._command:
+            self._command()
+
+    def configure(self, cnf=None, **kwargs):
+        options = dict(cnf or {})
+        options.update(kwargs)
+        if "text" in options:
+            self._text = options.pop("text")
+        if "fg" in options:
+            self._button_fg = options.pop("fg")
+        if "bg" in options:
+            self._button_bg = options.pop("bg")
+        if "command" in options:
+            self._command = options.pop("command")
+        options.pop("activebackground", None)
+        options.pop("activeforeground", None)
+        options.pop("relief", None)
+        options.pop("highlightthickness", None)
+        result = super().configure(options)
+        self._draw()
+        return result
+
+    config = configure
+
 class CardVoiceUI:
     def __init__(self, ui_queue, on_mic_click_callback, hotkey_manager, app, on_close_callback=None):
         self.ui_queue = ui_queue
@@ -151,6 +221,8 @@ class CardVoiceUI:
         self.root = None
         self.mic_btn_canvas = None
         self.status_label = None
+        self.settings_dialog = None
+        self.help_dialog = None
         
         self.is_visible = True
         self._drag_start_x = 0
@@ -172,8 +244,8 @@ class CardVoiceUI:
 
         self.root.protocol("WM_DELETE_WINDOW", self.hide_ui)
 
-        self.width = 192
-        self.height = 112
+        self.width = 208
+        self.height = 120
 
         self.main_canvas = tk.Canvas(
             self.root,
@@ -184,23 +256,18 @@ class CardVoiceUI:
         )
         self.main_canvas.pack()
 
-        self._draw_round_rect(0, 0, self.width, self.height, radius=15, fill=COLOR_BG, outline=COLOR_BORDER)
+        self._draw_round_rect(0, 0, self.width, self.height, radius=15, fill=COLOR_BG, outline="")
 
         top_frame = tk.Frame(self.root, bg=COLOR_BG)
-        top_frame.place(x=8, y=6, width=self.width-16, height=20)
-
-        handle_canvas = tk.Canvas(top_frame, width=36, height=6, bg=COLOR_BG, highlightthickness=0)
-        handle_canvas.pack(side="top", pady=1)
-        handle_canvas.create_rectangle(2, 1, 34, 5, fill="#5a5a5a", outline="")
-
+        top_frame.place(x=8, y=5, width=self.width-16, height=22)
 
         close_btn = tk.Label(
             top_frame,
             text="✕",
-            font=("Microsoft JhengHei UI", 9),
+            font=("Segoe UI Symbol", 10),
             bg=COLOR_BG,
             fg=COLOR_ICON,
-            cursor="hand2"
+            cursor="hand2", padx=3, pady=0
         )
         close_btn.place(x=self.width-34, y=-1, width=18, height=18)
         close_btn.bind("<Button-1>", lambda e: self.hide_ui())
@@ -209,9 +276,9 @@ class CardVoiceUI:
         close_btn.bind("<Leave>", lambda e: close_btn.config(fg=COLOR_ICON))
 
         mid_frame = tk.Frame(self.root, bg=COLOR_BG)
-        mid_frame.place(x=8, y=27, width=self.width-16, height=52)
+        mid_frame.place(x=8, y=29, width=self.width-16, height=52)
 
-        setting_btn = tk.Label(mid_frame, text="⚙", font=("Segoe UI Symbol", 12), bg=COLOR_BG, fg=COLOR_ICON, cursor="hand2")
+        setting_btn = tk.Label(mid_frame, text="⚙", font=("Segoe UI Symbol", 13), bg=COLOR_BG, fg=COLOR_ICON, cursor="hand2", padx=4)
         setting_btn.pack(side="left", padx=(8, 8))
         setting_btn.bind("<Button-1>", lambda e: self._open_settings_dialog())
         setting_btn.bind("<Enter>", lambda e: setting_btn.config(fg=COLOR_ACCENT))
@@ -222,7 +289,7 @@ class CardVoiceUI:
         self._draw_mic_button(active=False)
         self.mic_btn_canvas.bind("<Button-1>", lambda e: self.on_mic_click())
 
-        help_btn = tk.Label(mid_frame, text="❓", font=("Segoe UI Symbol", 10), bg=COLOR_BG, fg=COLOR_ICON, cursor="hand2")
+        help_btn = tk.Label(mid_frame, text="❓", font=("Segoe UI Symbol", 11), bg=COLOR_BG, fg=COLOR_ICON, cursor="hand2", padx=4)
         help_btn.pack(side="right", padx=(8, 8))
         help_btn.bind("<Button-1>", lambda e: self._show_help())
         help_btn.bind("<Enter>", lambda e: help_btn.config(fg=COLOR_ACCENT))
@@ -231,14 +298,14 @@ class CardVoiceUI:
         self.status_label = tk.Label(
             self.root,
             text=self.hotkey_manager.get_display_text(),
-            font=("Microsoft JhengHei UI", 8),
+            font=("Microsoft JhengHei UI", 8, "bold"),
             bg=COLOR_BG,
-            fg=COLOR_ICON,
+            fg=COLOR_MUTED,
             anchor="center"
         )
-        self.status_label.place(x=10, y=83, width=self.width-20, height=18)
+        self.status_label.place(x=10, y=88, width=self.width-20, height=20)
 
-        for widget in [self.main_canvas, handle_canvas, top_frame, mid_frame]:
+        for widget in [self.main_canvas, top_frame, mid_frame]:
             widget.bind("<ButtonPress-1>", self._start_drag)
             widget.bind("<B1-Motion>", self._do_drag)
 
@@ -289,14 +356,50 @@ class CardVoiceUI:
         self.mic_btn_canvas.create_text(25, 25, text=mic_symbol, font=("Segoe UI Emoji", 13), fill=icon_color)
 
     def _open_settings_dialog(self):
+        if self.settings_dialog is not None:
+            try:
+                if self.settings_dialog.winfo_exists():
+                    self.settings_dialog.deiconify()
+                    self.settings_dialog.lift()
+                    self.settings_dialog.focus_force()
+                    return
+            except tk.TclError:
+                self.settings_dialog = None
         dialog = tk.Toplevel(self.root)
-        dialog.title("設定快捷鍵")
+        self.settings_dialog = dialog
+        dialog.title("設定")
         
-        dialog_width = 286
-        dialog_height = 214
+        dialog_width = 360
+        dialog_height = 430
         dialog.configure(bg=COLOR_BG)
         dialog.resizable(False, False)
         dialog.attributes("-topmost", True)
+        dialog.transient(self.root)
+        dialog.overrideredirect(True)
+        dialog.configure(bg=COLOR_BG, highlightthickness=0)
+
+        titlebar = tk.Frame(dialog, bg=COLOR_SURFACE, height=38)
+        titlebar.pack(fill="x", side="top")
+        titlebar.pack_propagate(False)
+        tk.Label(
+            titlebar, text="設定", font=("Microsoft JhengHei UI", 10, "bold"),
+            bg=COLOR_SURFACE, fg="#f2f2f2", anchor="w"
+        ).pack(side="left", padx=16)
+        close_dialog_btn = tk.Label(
+            titlebar, text="✕", font=("Segoe UI Symbol", 10),
+            bg=COLOR_SURFACE, fg=COLOR_MUTED, cursor="hand2", padx=12
+        )
+        close_dialog_btn.pack(side="right", fill="y")
+        close_dialog_btn.bind("<Enter>", lambda e: close_dialog_btn.config(bg="#c42b3c", fg="white"))
+        close_dialog_btn.bind("<Leave>", lambda e: close_dialog_btn.config(bg=COLOR_SURFACE, fg=COLOR_MUTED))
+
+        drag_state = {"x": 0, "y": 0}
+        def start_dialog_drag(event):
+            drag_state["x"], drag_state["y"] = event.x_root - dialog.winfo_x(), event.y_root - dialog.winfo_y()
+        def drag_dialog(event):
+            dialog.geometry(f"+{event.x_root - drag_state['x']}+{event.y_root - drag_state['y']}")
+        titlebar.bind("<ButtonPress-1>", start_dialog_drag)
+        titlebar.bind("<B1-Motion>", drag_dialog)
 
         screen_width = dialog.winfo_screenwidth()
         screen_height = dialog.winfo_screenheight()
@@ -304,25 +407,45 @@ class CardVoiceUI:
         center_y = int((screen_height - dialog_height) / 2)
         dialog.geometry(f"{dialog_width}x{dialog_height}+{center_x}+{center_y}")
 
-        tk.Label(dialog, text="目前的快捷鍵：", font=("Microsoft JhengHei UI", 9), bg=COLOR_BG, fg=COLOR_ICON).pack(pady=(12, 2))
+        header = tk.Frame(dialog, bg=COLOR_BG)
+        header.pack(fill="x", padx=24, pady=(18, 8))
+        tk.Label(
+            header, text="設定", font=("Microsoft JhengHei UI", 15, "bold"),
+            bg=COLOR_BG, fg="#f2f2f2", anchor="w"
+        ).pack(fill="x")
+        tk.Label(
+            header, text="自訂快捷鍵及辨識後的輸入方式", font=("Microsoft JhengHei UI", 9),
+            bg=COLOR_BG, fg="#929292", anchor="w"
+        ).pack(fill="x", pady=(2, 0))
 
-        record_btn = tk.Button(
-            dialog, 
+        hotkey_section = tk.Frame(dialog, bg=COLOR_MIC_BG)
+        hotkey_section.pack(fill="x", padx=24, pady=(0, 12))
+        tk.Label(
+            hotkey_section, text="語音輸入快捷鍵", font=("Microsoft JhengHei UI", 9, "bold"),
+            bg=COLOR_MIC_BG, fg="#f2f2f2", anchor="w"
+        ).pack(fill="x", padx=14, pady=(10, 2))
+        tk.Label(
+            hotkey_section, text="目前設定", font=("Microsoft JhengHei UI", 8),
+            bg=COLOR_MIC_BG, fg="#929292", anchor="w"
+        ).pack(fill="x", padx=14)
+
+        record_btn = RoundedButton(
+            hotkey_section,
             text=self.hotkey_manager.get_display_text(), 
-            font=("Segoe UI", 10, "bold"), 
-            bg=COLOR_MIC_BG, 
+            bg=COLOR_SURFACE,
             fg=COLOR_ACCENT, 
-            activebackground=COLOR_MIC_ACTIVE,
-            activeforeground=COLOR_ACCENT,
-            bd=1, 
-            relief="solid",
-            width=22,
-            cursor="hand2"
+            width=284, height=42, radius=12
         )
-        record_btn.pack(pady=4, ipady=4)
+        record_btn.pack(pady=(5, 10), padx=14, fill="x")
+        record_btn.bind("<Enter>", lambda e: record_btn.config(bg=COLOR_ACCENT, fg="white"))
+        record_btn.bind("<Leave>", lambda e: record_btn.config(bg=COLOR_SURFACE, fg=COLOR_ACCENT))
 
-        tip_label = tk.Label(dialog, text="點擊上方按鈕，按下新快捷鍵組合", font=("Microsoft JhengHei UI", 8), bg=COLOR_BG, fg=COLOR_ICON)
-        tip_label.pack(pady=(2, 6))
+        tip_label = tk.Label(
+            hotkey_section, text="點擊按鈕後按下組合鍵，全部放開即儲存",
+            font=("Microsoft JhengHei UI", 8), bg=COLOR_MIC_BG, fg="#929292",
+            anchor="w", justify="left"
+        )
+        tip_label.pack(fill="x", padx=14, pady=(0, 10))
 
         recording_state = {"is_recording": False, "recorded_keys": [], "pynput_listener": None}
 
@@ -336,8 +459,10 @@ class CardVoiceUI:
                     pass
             self.hotkey_manager._start_listener()
             dialog.destroy()
+            self.settings_dialog = None
 
         dialog.protocol("WM_DELETE_WINDOW", on_dialog_close)
+        close_dialog_btn.bind("<Button-1>", lambda e: on_dialog_close())
 
         def reset_hotkey():
             if recording_state["is_recording"]:
@@ -349,8 +474,27 @@ class CardVoiceUI:
 
                 self.status_label.config(text=display_txt)
 
+        def cancel_recording():
+            if not recording_state["is_recording"]:
+                return
+            recording_state["is_recording"] = False
+            recording_state["recorded_keys"].clear()
+            if recording_state["pynput_listener"]:
+                try:
+                    recording_state["pynput_listener"].stop()
+                except Exception:
+                    pass
+                recording_state["pynput_listener"] = None
+            self.hotkey_manager._start_listener()
+            record_btn.config(
+                text=self.hotkey_manager.get_display_text(),
+                fg=COLOR_ACCENT, bg=COLOR_MIC_BG
+            )
+            tip_label.config(text="已取消設定", fg=COLOR_MUTED)
+
         def start_recording():
             if recording_state["is_recording"]:
+                cancel_recording()
                 return
 
             recording_state["is_recording"] = True
@@ -435,39 +579,90 @@ class CardVoiceUI:
         record_btn.config(command=start_recording)
 
         clip_var = tk.BooleanVar(value=self.app.copy_to_clipboard)
+        options_section = tk.Frame(dialog, bg=COLOR_BG)
+        options_section.pack(fill="x", padx=24, pady=(0, 8))
+        tk.Label(
+            options_section, text="輸入選項", font=("Microsoft JhengHei UI", 9, "bold"),
+            bg=COLOR_BG, fg="#f2f2f2", anchor="w"
+        ).pack(fill="x", pady=(0, 3))
         cb = tk.Checkbutton(
-            dialog, text="辨識後自動複製到剪貼簿",
+            options_section, text="辨識成功後自動複製到剪貼簿",
             variable=clip_var, bg=COLOR_BG, fg=COLOR_ICON,
             activebackground=COLOR_BG, activeforeground=COLOR_ICON,
             selectcolor=COLOR_MIC_BG, font=("Microsoft JhengHei UI", 9),
-            command=lambda: self.app.set_copy_to_clipboard(clip_var.get())
+            command=lambda: self.app.set_copy_to_clipboard(clip_var.get()),
+            anchor="w", padx=0
         )
-        cb.pack(pady=(2, 2))
+        cb.pack(fill="x")
 
-        reset_btn = tk.Button(
-            dialog, 
-            text="重設為預設值", 
-            font=("Microsoft JhengHei UI", 8), 
-            bg=COLOR_BG, 
+        footer = tk.Frame(dialog, bg=COLOR_BG, height=54)
+        footer.pack(fill="x", padx=24, pady=(12, 22))
+        footer.pack_propagate(False)
+        reset_btn = RoundedButton(
+            footer,
+            text="重設快捷鍵",
+            bg=COLOR_SURFACE,
             fg=COLOR_ICON, 
-            activebackground=COLOR_BG,
-            activeforeground="#d13438",
-
-            bd=0, 
-            cursor="hand2",
-            command=reset_hotkey
+            width=150, height=34, radius=10, command=reset_hotkey
         )
-        reset_btn.pack(pady=(0, 4))
+        reset_btn.pack(side="left", anchor="center")
+        reset_btn.bind("<Enter>", lambda e: reset_btn.config(bg=COLOR_ACCENT, fg="white"))
+        reset_btn.bind("<Leave>", lambda e: reset_btn.config(bg=COLOR_SURFACE, fg=COLOR_ICON))
+        tk.Label(
+            footer, text="預設組合：Ctrl + Alt + V",
+            font=("Microsoft JhengHei UI", 8), bg=COLOR_BG, fg=COLOR_MUTED
+        ).pack(side="left", padx=(10, 0))
+        dialog.update_idletasks()
+        _apply_rounded_window(dialog, radius=18)
+        dialog.deiconify()
+        dialog.lift()
+        dialog.focus_force()
 
     def _show_help(self):
+        if self.help_dialog is not None:
+            try:
+                if self.help_dialog.winfo_exists():
+                    self.help_dialog.deiconify()
+                    self.help_dialog.lift()
+                    self.help_dialog.focus_force()
+                    return
+            except tk.TclError:
+                self.help_dialog = None
         help_dialog = tk.Toplevel(self.root)
+        self.help_dialog = help_dialog
         help_dialog.title("使用說明")
         
-        dialog_width = 300
-        dialog_height = 200
+        dialog_width = 380
+        dialog_height = 356
         help_dialog.configure(bg=COLOR_BG)
         help_dialog.resizable(False, False)
         help_dialog.attributes("-topmost", True)
+        help_dialog.transient(self.root)
+        help_dialog.overrideredirect(True)
+        help_dialog.configure(bg=COLOR_BG, highlightthickness=0)
+
+        titlebar = tk.Frame(help_dialog, bg=COLOR_SURFACE, height=38)
+        titlebar.pack(fill="x", side="top")
+        titlebar.pack_propagate(False)
+        tk.Label(
+            titlebar, text="使用說明", font=("Microsoft JhengHei UI", 10, "bold"),
+            bg=COLOR_SURFACE, fg="#f2f2f2", anchor="w"
+        ).pack(side="left", padx=16)
+        close_help_btn = tk.Label(
+            titlebar, text="✕", font=("Segoe UI Symbol", 10),
+            bg=COLOR_SURFACE, fg=COLOR_MUTED, cursor="hand2", padx=12
+        )
+        close_help_btn.pack(side="right", fill="y")
+        close_help_btn.bind("<Enter>", lambda e: close_help_btn.config(bg="#c42b3c", fg="white"))
+        close_help_btn.bind("<Leave>", lambda e: close_help_btn.config(bg=COLOR_SURFACE, fg=COLOR_MUTED))
+
+        drag_state = {"x": 0, "y": 0}
+        def start_help_drag(event):
+            drag_state["x"], drag_state["y"] = event.x_root - help_dialog.winfo_x(), event.y_root - help_dialog.winfo_y()
+        def drag_help(event):
+            help_dialog.geometry(f"+{event.x_root - drag_state['x']}+{event.y_root - drag_state['y']}")
+        titlebar.bind("<ButtonPress-1>", start_help_drag)
+        titlebar.bind("<B1-Motion>", drag_help)
 
         screen_width = help_dialog.winfo_screenwidth()
         screen_height = help_dialog.winfo_screenheight()
@@ -475,49 +670,55 @@ class CardVoiceUI:
         center_y = int((screen_height - dialog_height) / 2)
         help_dialog.geometry(f"{dialog_width}x{dialog_height}+{center_x}+{center_y}")
 
-        title_label = tk.Label(
-            help_dialog, 
-            text="粵語語音輸入法指南", 
-            font=("Microsoft JhengHei UI", 10, "bold"), 
-            bg=COLOR_BG, 
-            fg=COLOR_ACCENT
-        )
-        title_label.pack(pady=(15, 10))
+        header = tk.Frame(help_dialog, bg=COLOR_BG)
+        header.pack(fill="x", padx=24, pady=(20, 12))
+        tk.Label(
+            header, text="使用說明", font=("Microsoft JhengHei UI", 16, "bold"),
+            bg=COLOR_BG, fg="#f2f2f2", anchor="w"
+        ).pack(fill="x")
+        tk.Label(
+            header, text="用快捷鍵或麥克風按鈕快速輸入粵語", font=("Microsoft JhengHei UI", 9),
+            bg=COLOR_BG, fg=COLOR_MUTED, anchor="w"
+        ).pack(fill="x", pady=(3, 0))
 
         current_hotkey = self.hotkey_manager.get_display_text()
         copy_note = "並複製至剪貼簿" if self.app.copy_to_clipboard else ""
-        help_text = (
-            f"1. 按下快捷鍵 ({current_hotkey}) 開始錄音\n"
-            "2. 對著麥克風講廣東話\n"
-            f"3. 識別後將自動輸入至游標位置{copy_note}\n"
-            "4. 點擊 ✕ 可隱藏浮窗，由右下角托盤重啟"
-        )
-        
-        content_label = tk.Label(
-            help_dialog, 
-            text=help_text, 
-            font=("Microsoft JhengHei UI", 9), 
-            bg=COLOR_BG, 
-            fg=COLOR_ICON,
-            justify="left"
-        )
-        content_label.pack(padx=20, pady=(0, 15), anchor="w")
+        steps = tk.Frame(help_dialog, bg=COLOR_SURFACE)
+        steps.pack(fill="x", padx=24, pady=(0, 16))
+        instructions = [
+            ("01", f"按下 {current_hotkey} 或點擊麥克風"),
+            ("02", "對著麥克風說廣東話"),
+            ("03", f"文字會自動輸入到游標位置{copy_note}"),
+            ("04", "按 ✕ 隱藏浮窗，可從系統托盤恢復"),
+        ]
+        for index, (number, text) in enumerate(instructions):
+            row = tk.Frame(steps, bg=COLOR_SURFACE)
+            row.pack(fill="x", padx=14, pady=(11 if index == 0 else 4, 4 if index < len(instructions) - 1 else 11))
+            tk.Label(row, text=number, font=("Segoe UI", 8, "bold"), bg=COLOR_ACCENT, fg="white", width=4).pack(side="left")
+            tk.Label(row, text=text, font=("Microsoft JhengHei UI", 9), bg=COLOR_SURFACE, fg="#d8d8d8", anchor="w").pack(side="left", padx=10)
 
-        ok_btn = tk.Button(
-            help_dialog, 
-            text="了解", 
-            font=("Microsoft JhengHei UI", 9), 
-            bg=COLOR_MIC_BG, 
+        footer = tk.Frame(help_dialog, bg=COLOR_BG)
+        footer.pack(fill="x", padx=24, pady=(0, 18))
+        def close_help():
+            self.help_dialog = None
+            help_dialog.destroy()
+
+        ok_btn = RoundedButton(
+            footer,
+            text="關閉",
+            bg=COLOR_SURFACE,
             fg=COLOR_ACCENT, 
-            activebackground=COLOR_MIC_ACTIVE,
-            activeforeground=COLOR_ACCENT,
-            bd=1, 
-            relief="solid",
-            width=10,
-            cursor="hand2",
-            command=help_dialog.destroy
+            width=120, height=36, radius=10, command=close_help
         )
-        ok_btn.pack(pady=(0, 15))
+        ok_btn.pack(anchor="center")
+        ok_btn.bind("<Enter>", lambda e: ok_btn.config(bg=COLOR_ACCENT, fg="white"))
+        ok_btn.bind("<Leave>", lambda e: ok_btn.config(bg=COLOR_SURFACE, fg=COLOR_ACCENT))
+        close_help_btn.bind("<Button-1>", lambda e: close_help())
+        help_dialog.update_idletasks()
+        _apply_rounded_window(help_dialog, radius=18)
+        help_dialog.deiconify()
+        help_dialog.lift()
+        help_dialog.focus_force()
 
     def toggle_ui(self):
         if self.is_visible:
