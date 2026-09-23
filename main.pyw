@@ -448,10 +448,28 @@ class CardVoiceUI:
         tip_label.pack(fill="x", padx=14, pady=(0, 10))
 
         recording_state = {"is_recording": False, "recorded_keys": [], "pynput_listener": None}
+        tip_message_timer = {"id": None}
+        default_tip_text = "點擊按鈕後按下組合鍵，全部放開即儲存"
+
+        def schedule_tip_reset():
+            if tip_message_timer["id"] is not None:
+                try:
+                    dialog.after_cancel(tip_message_timer["id"])
+                except Exception:
+                    pass
+            tip_message_timer["id"] = dialog.after(
+                3000,
+                lambda: tip_label.config(text=default_tip_text, fg="#929292")
+            )
 
         self.hotkey_manager.stop_listener()
 
         def on_dialog_close():
+            if tip_message_timer["id"] is not None:
+                try:
+                    dialog.after_cancel(tip_message_timer["id"])
+                except Exception:
+                    pass
             if recording_state["pynput_listener"]:
                 try:
                     recording_state["pynput_listener"].stop()
@@ -469,8 +487,10 @@ class CardVoiceUI:
                 return
             if self.hotkey_manager.reset_to_default():
                 display_txt = self.hotkey_manager.get_display_text()
-                record_btn.config(text=display_txt, fg=COLOR_ACCENT, bg=COLOR_MIC_BG)
+                # 重設後恢復一般按鈕底色，避免與外層區塊融合而看不到按鈕邊界。
+                record_btn.config(text=display_txt, fg=COLOR_ACCENT, bg=COLOR_SURFACE)
                 tip_label.config(text="✓ 已重設為預設 (CTRL+ALT+V)", fg="#107c10")
+                schedule_tip_reset()
 
                 self.status_label.config(text=display_txt)
 
@@ -488,9 +508,10 @@ class CardVoiceUI:
             self.hotkey_manager._start_listener()
             record_btn.config(
                 text=self.hotkey_manager.get_display_text(),
-                fg=COLOR_ACCENT, bg=COLOR_MIC_BG
+                fg=COLOR_ACCENT, bg=COLOR_SURFACE
             )
             tip_label.config(text="已取消設定", fg=COLOR_MUTED)
+            schedule_tip_reset()
 
         def start_recording():
             if recording_state["is_recording"]:
@@ -561,12 +582,13 @@ class CardVoiceUI:
 
                     if self.hotkey_manager.update_hotkey(new_hotkey_str):
                         display_txt = self.hotkey_manager.get_display_text()
-                        record_btn.config(text=display_txt, fg="#107c10", bg=COLOR_MIC_BG)
+                        record_btn.config(text=display_txt, fg="#107c10", bg=COLOR_SURFACE)
 
                         tip_label.config(text="✓ 設定成功！", fg="#34C759")
+                        schedule_tip_reset()
                         self.status_label.config(text=display_txt)
                     else:
-                        record_btn.config(text="錯誤", fg="#FF3B30", bg=COLOR_MIC_BG)
+                        record_btn.config(text="錯誤", fg="#FF3B30", bg=COLOR_SURFACE)
                         tip_label.config(text="不支援的組合，請重試", fg="#FF3B30")
                         self.hotkey_manager._start_listener()
 
