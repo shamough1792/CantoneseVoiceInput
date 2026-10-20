@@ -1,13 +1,14 @@
 # 粵語語音輸入法
 
-[![Latest Release](https://img.shields.io/badge/version-v2.2.1-green?style=flat&logo=github)](https://github.com/shamough1792/CantoneseVoiceInput/releases/tag/v2.2.1)
+[![Latest Release](https://img.shields.io/badge/version-v2.3.0-green?style=flat&logo=github)](https://github.com/shamough1792/CantoneseVoiceInput/releases/tag/v2.3.0)
 [![Python](https://img.shields.io/badge/python-3.8+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 ![License](https://img.shields.io/badge/license-MIT-orange?style=flat)
 
 基於 Chrome 語音識別技術開發的輕量化桌面粵語語音輸入工具。支援浮動卡片介面、動態熱鍵設定、自動打字輸入。
 
 專案提供單一入口 `main.pyw`：辨識成功後自動輸入到目前游標位置。
-在設定視窗中可勾選「辨識後自動複製到剪貼簿」，勾選後辨識成功會同時複製到系統剪貼簿。
+在設定視窗中可開啟「辨識成功後自動複製到剪貼簿」，辨識成功會同時複製到系統剪貼簿。
+設定亦提供「深色／淺色」模式，浮窗、設定及說明視窗會同步切換，並記住外觀選擇。
 
 ## ✨ 功能特點
 
@@ -16,6 +17,8 @@
 - ⌨️ **自動輸入** — 識別的文字直接打到游標位置
 - 🗂️ **系統托盤** — 後台運行，點擊托盤圖標可快速顯示/隱藏
 - 🔧 **動態熱鍵** — 在 UI 內自訂快捷鍵組合
+- 🎨 **深淺模式** — 三個視窗即時同步，圓角按鈕採用抗鋸齒繪製
+- 📋 **剪貼簿開關** — 整列可點擊，亦支援 Space／Enter 切換並自動儲存
 - 🔌 **即插即用** — 下載即用，無需額外配置
 
 ## 🚀 快速開始
@@ -54,6 +57,8 @@
 | **麥克風** | 可正常使用的裝置 |
 | **網絡** | 需要網絡連線（用於語音識別） |
 | **記憶體** | 建議 2GB 以上 |
+
+Windows 11 的視窗外框優先採用系統原生圓角；舊版 Windows 使用後備裁切，平滑度可能不同。內部按鈕及開關是 Tkinter 自訂控制項，並非 WinUI 原生元件。
 
 ## 📦 從源碼構建
 
@@ -137,7 +142,7 @@ python tools/spike_realmic.py
 
 ## 📋 技術棧
 
-- **GUI** — Tkinter（原生 Windows 介面）
+- **GUI** — Tkinter 自訂介面、Pillow 抗鋸齒控制項及 Windows 11 原生外框圓角
 - **語音識別** — Chrome Web Speech API（`webkitSpeechRecognition`，直接呼叫、事件驅動，v1.6+）
 - **自動化** — Selenium + Chrome WebDriver（頁面載入與麥克風權限管理）
 - **系統整合** — pynput（全局熱鍵）、pystray（托盤）、ctypes（Windows API）
