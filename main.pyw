@@ -18,26 +18,41 @@ from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 
 import pystray
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageTk
 
 GWL_EXSTYLE = -20
 WS_EX_NOACTIVATE = 0x08000000
 
-DEFAULT_CONFIG = {"copy_to_clipboard": False}
+THEME_PALETTES = {
+    "dark": {"bg": "#1f1f1f", "surface": "#252525", "surface_alt": "#2a2a2a", "border": "#3c3c3c", "text": "#f3f3f3", "muted": "#8f8f8f", "accent": "#38b2a1", "mic_bg": "#2a2a2a", "mic_active": "#333333", "success": "#107c10", "warning": "#c19c00", "error": "#d13438", "hover": "#333333"},
+    "light": {"bg": "#f3f3f3", "surface": "#ffffff", "surface_alt": "#e8e8e8", "border": "#d1d1d1", "text": "#1f1f1f", "muted": "#666666", "accent": "#087f70", "mic_bg": "#e8e8e8", "mic_active": "#d6e8f8", "success": "#107c10", "warning": "#9a6700", "error": "#c42b1c", "hover": "#dedede"},
+}
+DEFAULT_CONFIG = {"copy_to_clipboard": False, "theme": "dark"}
+
+
+def normalize_theme(value):
+    return value if isinstance(value, str) and value in THEME_PALETTES else "dark"
+
+
 CONFIG_DIR = os.path.join(os.environ['LOCALAPPDATA'], 'CantoneseVoiceInput')
 
 def load_config():
     try:
         with open(os.path.join(CONFIG_DIR, 'config.json'), 'r', encoding='utf-8') as f:
-            return {**DEFAULT_CONFIG, **json.load(f)}
+            config = {**DEFAULT_CONFIG, **json.load(f)}
+            config["theme"] = normalize_theme(config.get("theme"))
+            return config
     except Exception:
         return dict(DEFAULT_CONFIG)
 
 def save_config(config):
     try:
+        current_config = load_config()
+        current_config.update(config)
+        current_config["theme"] = normalize_theme(current_config.get("theme"))
         os.makedirs(CONFIG_DIR, exist_ok=True)
         with open(os.path.join(CONFIG_DIR, 'config.json'), 'w', encoding='utf-8') as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
+            json.dump(current_config, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print(f"[設定] 無法儲存設定檔: {e}")
 
@@ -82,18 +97,50 @@ def play_sound(sound_type="start"):
         _play_wav(path)
 
 def _apply_rounded_window(window, radius=18):
-    """將無邊框 Toplevel 裁成圓角，使用 Toplevel 自身 HWND。"""
+    """優先使用合成器的平滑圓角，不支援時才使用區域裁切。"""
     try:
         window.update_idletasks()
-        hwnd = window.winfo_id()
-        width = window.winfo_width()
-        height = window.winfo_height()
-        region = ctypes.windll.gdi32.CreateRoundRectRgn(
-            0, 0, width + 1, height + 1, radius * 2, radius * 2
-        )
-        ctypes.windll.user32.SetWindowRgn(hwnd, region, True)
-    except Exception:
-        pass
+        user32 = ctypes.windll.user32
+        get_ancestor = user32.GetAncestor
+        get_ancestor.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+        get_ancestor.restype = ctypes.c_void_p
+        inner_hwnd = window.winfo_id()
+        hwnd = get_ancestor(inner_hwnd, 2) or inner_hwnd
+        set_region = user32.SetWindowRgn
+        set_region.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int]
+        set_region.restype = ctypes.c_int
+
+        try:
+            set_attribute = ctypes.windll.dwmapi.DwmSetWindowAttribute
+            set_attribute.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint]
+            set_attribute.restype = ctypes.c_long
+            # 自訂區域會阻止原生圓角；Tk 內容 HWND 與外層視窗都必須清除。
+            set_region(inner_hwnd, None, True)
+            if hwnd != inner_hwnd:
+                set_region(hwnd, None, True)
+            preference = ctypes.c_int(2)  # DWMWCP_ROUND
+            if set_attribute(hwnd, 33, ctypes.byref(preference), ctypes.sizeof(preference)) == 0:
+                border = ctypes.c_uint(0xfffffffe)  # DWMWA_COLOR_NONE：維持無細邊框。
+                set_attribute(hwnd, 34, ctypes.byref(border), ctypes.sizeof(border))
+                return True
+        except (AttributeError, OSError):
+            pass
+
+        gdi32 = ctypes.windll.gdi32
+        create_region = gdi32.CreateRoundRectRgn
+        create_region.argtypes = [ctypes.c_int] * 6
+        create_region.restype = ctypes.c_void_p
+        region = create_region(0, 0, window.winfo_width() + 1,
+                               window.winfo_height() + 1, radius * 2, radius * 2)
+        # 成功時由系統持有區域；失敗時由我們釋放，避免 GDI 資源洩漏。
+        if region and not set_region(hwnd, region, True):
+            delete_region = gdi32.DeleteObject
+            delete_region.argtypes = [ctypes.c_void_p]
+            delete_region.restype = ctypes.c_int
+            delete_region(region)
+    except (AttributeError, OSError, tk.TclError):
+        return False
+    return False
 
 def create_tray_icon_image():
     width, height = 32, 32
@@ -155,12 +202,26 @@ class DynamicHotkeyManager:
         readable = self.current_hotkey_str.replace("<", "").replace(">", "").upper()
         return readable
 
+def _rounded_surface(width, height, radius, fill, outline=None, outline_width=1):
+    """以四倍取樣產生透明圓角表面，避免 Canvas 原始圖元的階梯邊緣。"""
+    width, height = max(1, int(width)), max(1, int(height))
+    radius = max(0, min(radius, width / 2, height / 2))
+    scale = 4
+    image = Image.new("RGBA", (width * scale, height * scale))
+    ImageDraw.Draw(image).rounded_rectangle(
+        (0, 0, width * scale - 1, height * scale - 1),
+        radius=radius * scale, fill=fill, outline=outline,
+        width=max(1, int(outline_width * scale)))
+    resampling = getattr(Image, "Resampling", Image)
+    return image.resize((width, height), resampling.LANCZOS)
+
+
 class RoundedButton(tk.Canvas):
-    """輕量圓角按鈕，保留 Tkinter button 的 config / command 用法。"""
+    """抗鋸齒圓角按鈕，保留既有 config / command 用法。"""
     def __init__(self, parent, text="", command=None, width=220, height=38,
                  bg=COLOR_SURFACE, fg=COLOR_ICON, radius=10, **kwargs):
         super().__init__(parent, width=width, height=height, bg=parent.cget("bg"),
-                         highlightthickness=0, bd=0, cursor="hand2")
+                         highlightthickness=0, bd=0, cursor="hand2", takefocus=True)
         self._text = text
         self._button_bg = bg
         self._button_fg = fg
@@ -168,23 +229,76 @@ class RoundedButton(tk.Canvas):
         self._radius = radius
         self._button_width = width
         self._button_height = height
+        self._hovered = False
+        self._pressed = False
+        self._focused = False
+        self._theme_owner = None
+        ancestor = parent
+        while ancestor is not None and self._theme_owner is None:
+            self._theme_owner = getattr(ancestor, "_theme_owner", None)
+            ancestor = getattr(ancestor, "master", None)
         self._draw()
-        self.bind("<Button-1>", self._invoke)
+        self.bind("<Configure>", lambda _event: self._draw())
+        self.bind("<Enter>", lambda _event: self._set_hover(True))
+        self.bind("<Leave>", lambda _event: self._set_hover(False))
+        self.bind("<ButtonPress-1>", self._press)
+        self.bind("<ButtonRelease-1>", self._release)
+        self.bind("<FocusIn>", lambda _event: self._set_focus(True))
+        self.bind("<FocusOut>", lambda _event: self._set_focus(False))
+        for key in ("space", "Return"):
+            self.bind(f"<KeyPress-{key}>", self._press)
+            self.bind(f"<KeyRelease-{key}>", self._release_key)
 
     def _draw(self):
         self.delete("all")
-        width = self._button_width
-        height = self._button_height
+        width = self.winfo_width() if self.winfo_width() > 1 else self._button_width
+        height = self.winfo_height() if self.winfo_height() > 1 else self._button_height
         r = min(self._radius, height // 2, width // 2)
         fill = self._button_bg
-        self.create_rectangle(r, 0, width - r, height, fill=fill, outline="")
-        self.create_rectangle(0, r, width, height - r, fill=fill, outline="")
-        self.create_oval(0, 0, r * 2, r * 2, fill=fill, outline="")
-        self.create_oval(width - r * 2, 0, width, r * 2, fill=fill, outline="")
-        self.create_oval(0, height - r * 2, r * 2, height, fill=fill, outline="")
-        self.create_oval(width - r * 2, height - r * 2, width, height, fill=fill, outline="")
+        if self._pressed or self._hovered:
+            rgb = tuple(channel // 257 for channel in self.winfo_rgb(fill))
+            target = 255 if sum(rgb) < 384 else 0
+            amount = 0.16 if self._pressed else 0.07
+            fill = tuple(round(channel + (target - channel) * amount) for channel in rgb)
+        super().configure(bg=self.master.cget("bg"))
+        surface = _rounded_surface(width, height, r, fill,
+                                   outline=self._button_fg if self._focused else None)
+        # Tk 不會持有 Python 圖片引用，必須保留，否則重繪後按鈕會消失。
+        self._background_image = ImageTk.PhotoImage(surface, master=self)
+        self.create_image(0, 0, anchor="nw", image=self._background_image)
         self.create_text(width // 2, height // 2, text=self._text,
                          fill=self._button_fg, font=("Microsoft JhengHei UI", 9, "bold"))
+
+    def _set_hover(self, hovered):
+        self._hovered = hovered
+        if not hovered:
+            self._pressed = False
+        self._draw()
+
+    def _set_focus(self, focused):
+        self._focused = focused
+        if not focused:
+            self._pressed = False
+        self._draw()
+
+    def _press(self, _event=None):
+        self.focus_set()
+        self._pressed = True
+        self._draw()
+
+    def _release(self, event):
+        invoke = self._pressed and 0 <= event.x < self.winfo_width() and 0 <= event.y < self.winfo_height()
+        self._pressed = False
+        self._draw()
+        if invoke:
+            self._invoke()
+
+    def _release_key(self, _event=None):
+        invoke = self._pressed
+        self._pressed = False
+        self._draw()
+        if invoke:
+            self._invoke()
 
     def _invoke(self, _event=None):
         if self._command:
@@ -199,6 +313,7 @@ class RoundedButton(tk.Canvas):
             self._button_fg = options.pop("fg")
         if "bg" in options:
             self._button_bg = options.pop("bg")
+            options["bg"] = self.master.cget("bg")
         if "command" in options:
             self._command = options.pop("command")
         options.pop("activebackground", None)
@@ -211,12 +326,110 @@ class RoundedButton(tk.Canvas):
 
     config = configure
 
+
+class ToggleSwitch(tk.Canvas):
+    """整列可點擊的膠囊開關，保留 BooleanVar 與設定儲存回呼。"""
+    def __init__(self, parent, text, variable, palette, command=None):
+        super().__init__(parent, width=312, height=36, bg=parent.cget("bg"),
+                         highlightthickness=0, bd=0, cursor="hand2", takefocus=True)
+        self.variable = variable
+        self._text = text
+        self._palette = palette
+        self._command = command
+        self._hovered = False
+        self._focused = False
+        self._pressed = False
+        self._variable_trace = variable.trace_add("write", lambda *_args: self._draw())
+        self.bind("<Configure>", lambda _event: self._draw())
+        self.bind("<Enter>", lambda _event: self._set_hover(True))
+        self.bind("<Leave>", lambda _event: self._set_hover(False))
+        self.bind("<FocusIn>", lambda _event: self._set_focus(True))
+        self.bind("<FocusOut>", lambda _event: self._set_focus(False))
+        self.bind("<ButtonPress-1>", self._press)
+        self.bind("<ButtonRelease-1>", self._release)
+        for key in ("space", "Return"):
+            self.bind(f"<KeyPress-{key}>", self._press)
+            self.bind(f"<KeyRelease-{key}>", self._release_key)
+        self.bind("<Destroy>", self._cleanup)
+        self._draw()
+
+    def set_palette(self, palette):
+        self._palette = palette
+        self.configure(bg=self.master.cget("bg"))
+        self._draw()
+
+    def _draw(self):
+        self.delete("all")
+        width = self.winfo_width() if self.winfo_width() > 1 else 312
+        height = self.winfo_height() if self.winfo_height() > 1 else 36
+        palette = self._palette
+        selected = self.variable.get()
+        track_fill = palette["accent"] if selected else palette["hover" if self._hovered else "surface_alt"]
+        track_outline = palette["text"] if self._focused else (None if selected else palette["muted"])
+        self._track_image = ImageTk.PhotoImage(
+            _rounded_surface(44, 24, 12, track_fill, track_outline), master=self)
+        x, y = width - 44, (height - 24) // 2
+        self.create_image(x, y, anchor="nw", image=self._track_image)
+        diameter = 16 if self._pressed else 18
+        knob_x = x + (32 if selected else 12) - diameter // 2
+        self._knob_image = ImageTk.PhotoImage(
+            _rounded_surface(diameter, diameter, diameter / 2, "#ffffff"), master=self)
+        self.create_image(knob_x, height // 2 - diameter // 2, anchor="nw", image=self._knob_image)
+        self.create_text(0, height // 2, anchor="w", text=self._text,
+                         fill=palette["text"], width=max(1, width - 56),
+                         font=("Microsoft JhengHei UI", 9))
+
+    def _set_hover(self, hovered):
+        self._hovered = hovered
+        if not hovered:
+            self._pressed = False
+        self._draw()
+
+    def _set_focus(self, focused):
+        self._focused = focused
+        if not focused:
+            self._pressed = False
+        self._draw()
+
+    def _press(self, _event=None):
+        self.focus_set()
+        self._pressed = True
+        self._draw()
+
+    def _release(self, event):
+        invoke = self._pressed and 0 <= event.x < self.winfo_width() and 0 <= event.y < self.winfo_height()
+        self._pressed = False
+        self._draw()
+        if invoke:
+            self._invoke()
+
+    def _release_key(self, _event=None):
+        invoke = self._pressed
+        self._pressed = False
+        self._draw()
+        if invoke:
+            self._invoke()
+
+    def _invoke(self):
+        self.variable.set(not self.variable.get())
+        if self._command:
+            self._command()
+
+    def _cleanup(self, event):
+        if event.widget is self:
+            self.variable.trace_remove("write", self._variable_trace)
+
 class CardVoiceUI:
     def __init__(self, ui_queue, on_mic_click_callback, hotkey_manager, app, on_close_callback=None):
         self.ui_queue = ui_queue
         self.on_mic_click = on_mic_click_callback
         self.hotkey_manager = hotkey_manager
         self.app = app
+        self.theme = app.theme
+        self._theme_bindings = {}
+        self._mic_active = False
+        self._status_role = "muted"
+        self.app.ui = self
         self.on_close_callback = on_close_callback
         self.root = None
         self.mic_btn_canvas = None
@@ -228,18 +441,104 @@ class CardVoiceUI:
         self._drag_start_x = 0
         self._drag_start_y = 0
 
+    @property
+    def palette(self):
+        return THEME_PALETTES[self.theme]
+
+    def _register_theme_widget(self, window, widget, bg_role=None, fg_role=None):
+        bindings = self._theme_bindings.setdefault(window, [])
+        bindings[:] = [binding for binding in bindings if binding[0] is not widget]
+        self._theme_bindings[window].append((widget, bg_role, fg_role))
+        self._configure_theme_widget(widget, bg_role, fg_role)
+
+    def _configure_theme_widget(self, widget, bg_role, fg_role):
+        if not widget.winfo_exists():
+            return
+        palette = self.palette
+        if isinstance(widget, ToggleSwitch):
+            widget.set_palette(palette)
+            return
+        options = {}
+        keys = widget.keys()
+        if bg_role and "bg" in keys:
+            options["bg"] = palette[bg_role]
+        if fg_role and ("fg" in keys or isinstance(widget, RoundedButton)):
+            options["fg"] = palette[fg_role]
+        if "selectcolor" in keys:
+            options.update(selectcolor=palette["mic_bg"], activebackground=palette["bg"], activeforeground=palette["text"])
+        if options:
+            widget.configure(**options)
+
+    def _register_theme_subtree(self, window, widget, bg_role=None, fg_role=None):
+        self._register_theme_widget(window, widget, bg_role, fg_role)
+        for child in widget.winfo_children():
+            self._register_theme_subtree(window, child, bg_role, fg_role)
+
+    def _forget_theme_window(self, window):
+        self._theme_bindings.pop(window, None)
+
+    def _apply_theme_widgets(self):
+        palette = self.palette
+        if self.root and self.root.winfo_exists():
+            self.root.configure(bg=palette["bg"])
+        for window, bindings in list(self._theme_bindings.items()):
+            if not window.winfo_exists():
+                self._forget_theme_window(window)
+                continue
+            for widget, bg_role, fg_role in bindings:
+                self._configure_theme_widget(widget, bg_role, fg_role)
+        if self.mic_btn_canvas and self.mic_btn_canvas.winfo_exists():
+            self._draw_mic_button(active=self._mic_active)
+
+        for value, button in getattr(self, "_theme_buttons", {}).items():
+            if button.winfo_exists():
+                selected = value == self.theme
+                button.configure(bg=palette["accent" if selected else "surface_alt"],
+                                 fg="#ffffff" if selected else palette["text"])
+
+    def apply_theme(self, theme):
+        if not isinstance(theme, str) or theme not in THEME_PALETTES:
+            return False
+        self.theme = theme
+        if self.root:
+            self.root.after(0, self._apply_theme_widgets)
+        return True
+
+    def _hover_config(self, widget, enter_bg_role, enter_fg_role, leave_bg_role, leave_fg_role):
+        def apply(bg_role, fg_role, entering=False):
+            if isinstance(widget, RoundedButton):
+                for bindings in self._theme_bindings.values():
+                    binding = next((item for item in bindings if item[0] is widget), None)
+                    if binding is not None:
+                        if not entering or binding[2] in {"warning", "success", "error"}:
+                            bg_role, fg_role = binding[1], binding[2]
+                        break
+            palette = self.palette
+            widget.configure(bg=palette[bg_role], fg=palette[fg_role])
+        def enter(_event):
+            if isinstance(widget, RoundedButton):
+                widget._set_hover(True)
+            apply(enter_bg_role, enter_fg_role, entering=True)
+
+        def leave(_event):
+            if isinstance(widget, RoundedButton):
+                widget._set_hover(False)
+            apply(leave_bg_role, leave_fg_role)
+
+        widget.bind("<Enter>", enter)
+        widget.bind("<Leave>", leave)
+
     def start(self):
         self.root = tk.Tk()
+        self.root._theme_owner = self
         self.root.title("粵語語音輸入法")
         
         self.root.attributes("-toolwindow", True)
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
         
-        TRANS_COLOR = "#000001"
-
-        self.root.config(bg=TRANS_COLOR)
-        self.root.wm_attributes("-transparentcolor", TRANS_COLOR)
+        # 透明色鍵只能硬切像素，會令圓角呈階梯狀；外框統一交由系統合成。
+        self.root.config(bg=self.palette["bg"])
         self.root.attributes("-alpha", 0.82)
 
         self.root.protocol("WM_DELETE_WINDOW", self.hide_ui)
@@ -251,12 +550,10 @@ class CardVoiceUI:
             self.root,
             width=self.width,
             height=self.height,
-            bg=TRANS_COLOR,
+            bg=self.palette["bg"],
             highlightthickness=0
         )
         self.main_canvas.pack()
-
-        self._draw_round_rect(0, 0, self.width, self.height, radius=15, fill=COLOR_BG, outline="")
 
         top_frame = tk.Frame(self.root, bg=COLOR_BG)
         top_frame.place(x=8, y=5, width=self.width-16, height=22)
@@ -309,6 +606,17 @@ class CardVoiceUI:
             widget.bind("<ButtonPress-1>", self._start_drag)
             widget.bind("<B1-Motion>", self._do_drag)
 
+        for widget, bg_role, fg_role in (
+            (self.main_canvas, "bg", None), (top_frame, "bg", None),
+            (mid_frame, "bg", None), (close_btn, "bg", "text"),
+            (setting_btn, "bg", "text"), (self.mic_btn_canvas, "bg", None),
+            (help_btn, "bg", "text"), (self.status_label, "bg", "muted"),
+        ):
+            self._register_theme_widget(self.root, widget, bg_role, fg_role)
+        self._hover_config(close_btn, "error", "text", "bg", "text")
+        self._hover_config(setting_btn, "bg", "accent", "bg", "text")
+        self._hover_config(help_btn, "bg", "accent", "bg", "text")
+
         self.root.update_idletasks()
 
         screen_width = self.root.winfo_screenwidth()
@@ -316,41 +624,26 @@ class CardVoiceUI:
         x_pos = screen_width - self.width - 20
         y_pos = screen_height - self.height - 60
         self.root.geometry(f"{self.width}x{self.height}+{x_pos}+{y_pos}")
-
+        _apply_rounded_window(self.root, radius=18)
         self._prevent_focus()
 
         self.root.after(50, self._check_queue)
         self.root.mainloop()
 
-    def _draw_round_rect(self, x1, y1, x2, y2, radius=14, **kwargs):
-        points = [x1+radius, y1,
-                  x2-radius, y1,
-                  x2, y1,
-                  x2, y1+radius,
-                  x2, y2-radius,
-                  x2, y2,
-                  x2-radius, y2,
-                  x1+radius, y2,
-                  x1, y2,
-                  x1, y2-radius,
-                  x1, y1+radius,
-                  x1, y1]
-        return self.main_canvas.create_polygon(points, smooth=True, **kwargs)
-
     def _draw_mic_button(self, active=False):
+        self._mic_active = active
         self.mic_btn_canvas.delete("all")
-        bg_circle_color = COLOR_MIC_BG if not active else COLOR_MIC_ACTIVE
-        icon_color = COLOR_ACCENT
+        palette = self.palette
+        bg_circle_color = palette["mic_bg"] if not active else palette["mic_active"]
+        icon_color = palette["accent"]
 
-        border_color = COLOR_ACCENT if active else COLOR_BORDER
+        border_color = palette["accent"] if active else palette["border"]
         border_width = 2 if active else 1
 
-        self.mic_btn_canvas.create_oval(
-            3, 3, 47, 47,
-            fill=bg_circle_color,
-            outline=border_color,
-            width=border_width
-        )
+        self._mic_background_image = ImageTk.PhotoImage(
+            _rounded_surface(44, 44, 22, bg_circle_color, border_color, border_width),
+            master=self.mic_btn_canvas)
+        self.mic_btn_canvas.create_image(3, 3, anchor="nw", image=self._mic_background_image)
 
         mic_symbol = "🎙️" if not active else "⏹️"
         self.mic_btn_canvas.create_text(25, 25, text=mic_symbol, font=("Segoe UI Emoji", 13), fill=icon_color)
@@ -366,7 +659,9 @@ class CardVoiceUI:
             except tk.TclError:
                 self.settings_dialog = None
         dialog = tk.Toplevel(self.root)
+        dialog._theme_owner = self
         self.settings_dialog = dialog
+        self._register_theme_widget(dialog, dialog, "bg")
         dialog.title("設定")
         
         dialog_width = 360
@@ -451,6 +746,10 @@ class CardVoiceUI:
         tip_message_timer = {"id": None}
         default_tip_text = "點擊按鈕後按下組合鍵，全部放開即儲存"
 
+        def show_tip(text, role):
+            tip_label.config(text=text)
+            self._register_theme_widget(dialog, tip_label, "mic_bg", role)
+
         def schedule_tip_reset():
             if tip_message_timer["id"] is not None:
                 try:
@@ -459,7 +758,7 @@ class CardVoiceUI:
                     pass
             tip_message_timer["id"] = dialog.after(
                 3000,
-                lambda: tip_label.config(text=default_tip_text, fg="#929292")
+                lambda: show_tip(default_tip_text, "muted")
             )
 
         self.hotkey_manager.stop_listener()
@@ -476,6 +775,7 @@ class CardVoiceUI:
                 except Exception:
                     pass
             self.hotkey_manager._start_listener()
+            self._forget_theme_window(dialog)
             dialog.destroy()
             self.settings_dialog = None
 
@@ -488,8 +788,9 @@ class CardVoiceUI:
             if self.hotkey_manager.reset_to_default():
                 display_txt = self.hotkey_manager.get_display_text()
                 # 重設後恢復一般按鈕底色，避免與外層區塊融合而看不到按鈕邊界。
-                record_btn.config(text=display_txt, fg=COLOR_ACCENT, bg=COLOR_SURFACE)
-                tip_label.config(text="✓ 已重設為預設 (CTRL+ALT+V)", fg="#107c10")
+                record_btn.config(text=display_txt, fg=self.palette["accent"], bg=self.palette["surface"])
+                self._register_theme_widget(dialog, record_btn, "surface", "accent")
+                show_tip("✓ 已重設為預設 (CTRL+ALT+V)", "success")
                 schedule_tip_reset()
 
                 self.status_label.config(text=display_txt)
@@ -508,9 +809,10 @@ class CardVoiceUI:
             self.hotkey_manager._start_listener()
             record_btn.config(
                 text=self.hotkey_manager.get_display_text(),
-                fg=COLOR_ACCENT, bg=COLOR_SURFACE
+                fg=self.palette["accent"], bg=self.palette["surface"]
             )
-            tip_label.config(text="已取消設定", fg=COLOR_MUTED)
+            self._register_theme_widget(dialog, record_btn, "surface", "accent")
+            show_tip("已取消設定", "muted")
             schedule_tip_reset()
 
         def start_recording():
@@ -520,9 +822,12 @@ class CardVoiceUI:
 
             recording_state["is_recording"] = True
             recording_state["recorded_keys"].clear()
-            record_btn.config(text="請按下組合鍵...", fg="#c19c00", bg=COLOR_MIC_ACTIVE)
-
-            tip_label.config(text="按下所有按鍵後，全部放開即儲存", fg="#FF9500")
+            record_btn.config(text="請按下組合鍵...", fg=self.palette["warning"], bg=self.palette["mic_active"])
+            self._register_theme_widget(dialog, record_btn, "mic_active", "warning")
+            if tip_message_timer["id"] is not None:
+                dialog.after_cancel(tip_message_timer["id"])
+                tip_message_timer["id"] = None
+            show_tip("按下所有按鍵後，全部放開即儲存", "warning")
 
             def parse_key(key):
                 if isinstance(key, Key):
@@ -560,7 +865,9 @@ class CardVoiceUI:
                 if k and k not in recording_state["recorded_keys"]:
                     recording_state["recorded_keys"].append(k)
 
-            def on_release(key):
+            def finish_recording(key):
+                if not dialog.winfo_exists():
+                    return False
                 if not recording_state["is_recording"]:
                     return False
 
@@ -582,16 +889,26 @@ class CardVoiceUI:
 
                     if self.hotkey_manager.update_hotkey(new_hotkey_str):
                         display_txt = self.hotkey_manager.get_display_text()
-                        record_btn.config(text=display_txt, fg="#107c10", bg=COLOR_SURFACE)
+                        record_btn.config(text=display_txt, fg=self.palette["success"], bg=self.palette["surface"])
 
-                        tip_label.config(text="✓ 設定成功！", fg="#34C759")
+                        self._register_theme_widget(dialog, record_btn, "surface", "success")
+                        show_tip("✓ 設定成功！", "success")
                         schedule_tip_reset()
                         self.status_label.config(text=display_txt)
                     else:
-                        record_btn.config(text="錯誤", fg="#FF3B30", bg=COLOR_SURFACE)
-                        tip_label.config(text="不支援的組合，請重試", fg="#FF3B30")
+                        record_btn.config(text="錯誤", fg=self.palette["error"], bg=self.palette["surface"])
+                        self._register_theme_widget(dialog, record_btn, "surface", "error")
+                        show_tip("不支援的組合，請重試", "error")
                         self.hotkey_manager._start_listener()
 
+                return False
+
+            def on_release(key):
+                # pynput 回呼來自背景執行緒，元件更新交回 Tk 事件迴圈。
+                try:
+                    self.root.after(0, lambda: finish_recording(key))
+                except (tk.TclError, RuntimeError):
+                    pass
                 return False
 
             listener = keyboard.Listener(on_press=on_press, on_release=on_release)
@@ -607,15 +924,27 @@ class CardVoiceUI:
             options_section, text="輸入選項", font=("Microsoft JhengHei UI", 9, "bold"),
             bg=COLOR_BG, fg="#f2f2f2", anchor="w"
         ).pack(fill="x", pady=(0, 3))
-        cb = tk.Checkbutton(
+        cb = ToggleSwitch(
             options_section, text="辨識成功後自動複製到剪貼簿",
-            variable=clip_var, bg=COLOR_BG, fg=COLOR_ICON,
-            activebackground=COLOR_BG, activeforeground=COLOR_ICON,
-            selectcolor=COLOR_MIC_BG, font=("Microsoft JhengHei UI", 9),
-            command=lambda: self.app.set_copy_to_clipboard(clip_var.get()),
-            anchor="w", padx=0
+            variable=clip_var, palette=self.palette,
+            command=lambda: self.app.set_copy_to_clipboard(clip_var.get())
         )
         cb.pack(fill="x")
+
+        appearance = tk.Frame(dialog, bg=self.palette["bg"])
+        appearance.pack(fill="x", padx=24, pady=(8, 0))
+        tk.Label(appearance, text="外觀", bg=self.palette["bg"],
+                 fg=self.palette["text"], font=("Microsoft JhengHei UI", 9, "bold")).pack(anchor="w", pady=(0, 6))
+        choices = tk.Frame(appearance, bg=self.palette["bg"])
+        choices.pack(fill="x")
+        self._theme_buttons = {}
+        dark_button = RoundedButton(choices, text="深色", width=145, height=36,
+                                    command=lambda: self.app.set_theme("dark"))
+        light_button = RoundedButton(choices, text="淺色", width=145, height=36,
+                                     command=lambda: self.app.set_theme("light"))
+        for value, button in (("dark", dark_button), ("light", light_button)):
+            button.pack(side="left", padx=(0, 8))
+            self._theme_buttons[value] = button
 
         footer = tk.Frame(dialog, bg=COLOR_BG, height=54)
         footer.pack(fill="x", padx=24, pady=(12, 22))
@@ -634,6 +963,22 @@ class CardVoiceUI:
             footer, text="預設組合：Ctrl + Alt + V",
             font=("Microsoft JhengHei UI", 8), bg=COLOR_BG, fg=COLOR_MUTED
         ).pack(side="left", padx=(10, 0))
+        self._register_theme_subtree(dialog, titlebar, "surface", "text")
+        self._register_theme_subtree(dialog, header, "bg", "text")
+        self._register_theme_subtree(dialog, hotkey_section, "mic_bg", "text")
+        self._register_theme_widget(dialog, record_btn, "surface", "accent")
+        self._register_theme_widget(dialog, tip_label, "mic_bg", "muted")
+        self._register_theme_subtree(dialog, options_section, "bg", "text")
+        self._register_theme_subtree(dialog, appearance, "bg", "text")
+        self._register_theme_subtree(dialog, footer, "bg", "text")
+        self._register_theme_widget(dialog, reset_btn, "surface", "text")
+        self._hover_config(record_btn, "accent", "text", "surface", "accent")
+        self._hover_config(reset_btn, "accent", "text", "surface", "text")
+        self._hover_config(close_dialog_btn, "error", "text", "surface", "muted")
+        dialog.bind("<Destroy>", lambda event: self._forget_theme_window(dialog) if event.widget is dialog else None, add="+")
+        dialog_height = 540
+        dialog.geometry(f"{dialog_width}x{dialog_height}")
+        self._apply_theme_widgets()
         dialog.update_idletasks()
         _apply_rounded_window(dialog, radius=18)
         dialog.deiconify()
@@ -651,17 +996,19 @@ class CardVoiceUI:
             except tk.TclError:
                 self.help_dialog = None
         help_dialog = tk.Toplevel(self.root)
+        help_dialog._theme_owner = self
         self.help_dialog = help_dialog
+        self._register_theme_widget(help_dialog, help_dialog, "bg")
         help_dialog.title("使用說明")
         
         dialog_width = 380
         dialog_height = 356
-        help_dialog.configure(bg=COLOR_BG)
+        help_dialog.configure(bg=self.palette["bg"])
         help_dialog.resizable(False, False)
         help_dialog.attributes("-topmost", True)
         help_dialog.transient(self.root)
         help_dialog.overrideredirect(True)
-        help_dialog.configure(bg=COLOR_BG, highlightthickness=0)
+        help_dialog.configure(bg=self.palette["bg"], highlightthickness=0)
 
         titlebar = tk.Frame(help_dialog, bg=COLOR_SURFACE, height=38)
         titlebar.pack(fill="x", side="top")
@@ -723,6 +1070,7 @@ class CardVoiceUI:
         footer.pack(fill="x", padx=24, pady=(0, 18))
         def close_help():
             self.help_dialog = None
+            self._forget_theme_window(help_dialog)
             help_dialog.destroy()
 
         ok_btn = RoundedButton(
@@ -736,6 +1084,18 @@ class CardVoiceUI:
         ok_btn.bind("<Enter>", lambda e: ok_btn.config(bg=COLOR_ACCENT, fg="white"))
         ok_btn.bind("<Leave>", lambda e: ok_btn.config(bg=COLOR_SURFACE, fg=COLOR_ACCENT))
         close_help_btn.bind("<Button-1>", lambda e: close_help())
+        self._register_theme_subtree(help_dialog, titlebar, "surface", "text")
+        self._register_theme_subtree(help_dialog, header, "bg", "text")
+        self._register_theme_subtree(help_dialog, steps, "surface", "text")
+        self._register_theme_subtree(help_dialog, footer, "bg", "text")
+        for child in steps.winfo_children():
+            for index, label in enumerate(child.winfo_children()):
+                self._register_theme_widget(help_dialog, label, "accent" if index == 0 else "surface", "text")
+        self._register_theme_widget(help_dialog, ok_btn, "surface", "accent")
+        self._hover_config(ok_btn, "accent", "text", "surface", "accent")
+        self._hover_config(close_help_btn, "error", "text", "surface", "muted")
+        help_dialog.protocol("WM_DELETE_WINDOW", close_help)
+        help_dialog.bind("<Destroy>", lambda event: self._forget_theme_window(help_dialog) if event.widget is help_dialog else None, add="+")
         help_dialog.update_idletasks()
         _apply_rounded_window(help_dialog, radius=18)
         help_dialog.deiconify()
@@ -763,6 +1123,7 @@ class CardVoiceUI:
         if self.on_close_callback:
             self.on_close_callback()
         if self.root:
+            self._theme_bindings.clear()
             self.root.quit()
             self.root.destroy()
 
@@ -801,10 +1162,14 @@ class CardVoiceUI:
                         print(f"[剪貼簿錯誤]: {clip_err}")
                     continue
 
-                state, msg, color = item
+                state, msg, color_role = item
+                palette = self.palette
                 
                 if msg:
-                    self.status_label.config(text=msg, fg=color if color else COLOR_ICON)
+                    self._status_role = color_role if color_role in palette else "text"
+                    self._register_theme_widget(self.root, self.status_label, "bg", self._status_role)
+                    color = palette[color_role] if color_role in palette else palette["text"]
+                    self.status_label.config(text=msg, fg=color)
                 
                 if state == "LISTENING":
                     self._draw_mic_button(active=True)
@@ -823,7 +1188,10 @@ class VoiceInputApp:
         self.hotkey_manager = hotkey_manager
         self.kb_controller = KeyboardController()
         self.driver = None
-        self.copy_to_clipboard = load_config().get("copy_to_clipboard", False)
+        config = load_config()
+        self.theme = config["theme"]
+        self.copy_to_clipboard = config["copy_to_clipboard"]
+        self.ui = None
         self._initialize_driver()
 
     def _initialize_driver(self):
@@ -909,8 +1277,18 @@ class VoiceInputApp:
         self.copy_to_clipboard = bool(value)
         save_config({"copy_to_clipboard": self.copy_to_clipboard})
 
+    def set_theme(self, theme):
+        if not isinstance(theme, str) or theme not in THEME_PALETTES:
+            return False
+        self.theme = theme
+        save_config({"theme": theme})
+        ui = self.ui
+        if ui and ui.root:
+            ui.root.after(0, lambda: ui.apply_theme(theme))
+        return True
+
     def _reset_status_message(self):
-        self.ui_queue.put(("IDLE", self.hotkey_manager.get_display_text(), COLOR_ICON))
+        self.ui_queue.put(("IDLE", self.hotkey_manager.get_display_text(), "muted"))
 
     SPEECH_JS = r"""
     window.__voiceResult = { done: false, transcript: '', error: '' };
@@ -957,7 +1335,7 @@ class VoiceInputApp:
 
         try:
             play_sound("start")
-            self.ui_queue.put(("LISTENING", "聆聽中...", COLOR_ACCENT))
+            self.ui_queue.put(("LISTENING", "聆聽中...", "accent"))
 
             self.driver.get("https://www.google.com.hk/webhp?hl=zh-HK")
 
@@ -975,27 +1353,27 @@ class VoiceInputApp:
 
                 display_text = recognized_text if len(recognized_text) <= 12 else recognized_text[:12] + "..."
 
-                self.ui_queue.put(("IDLE", f"✨ {display_text}", "#107c10"))
+                self.ui_queue.put(("IDLE", f"✨ {display_text}", "success"))
 
                 self.kb_controller.type(recognized_text)
             elif error == "no-speech":
                 play_sound("fail")
-                self.ui_queue.put(("IDLE", "⚠️ 未聽清", "#c19c00"))
+                self.ui_queue.put(("IDLE", "⚠️ 未聽清", "warning"))
             elif error in ("not-allowed", "service-not-allowed"):
                 play_sound("fail")
-                self.ui_queue.put(("IDLE", "❌ 麥克風權限被拒", "#d13438"))
+                self.ui_queue.put(("IDLE", "❌ 麥克風權限被拒", "error"))
             elif error == "network":
                 play_sound("fail")
-                self.ui_queue.put(("IDLE", "❌ 無法連線識別", "#d13438"))
+                self.ui_queue.put(("IDLE", "❌ 無法連線識別", "error"))
             elif error == "aborted":
-                self.ui_queue.put(("IDLE", self.hotkey_manager.get_display_text(), COLOR_ICON))
+                self.ui_queue.put(("IDLE", self.hotkey_manager.get_display_text(), "muted"))
             else:
                 play_sound("fail")
-                self.ui_queue.put(("IDLE", "⚠️ 識別失敗", "#c19c00"))
+                self.ui_queue.put(("IDLE", "⚠️ 識別失敗", "warning"))
 
         except Exception as e:
             print(f"[系統提示]: {e}")
-            self.ui_queue.put(("IDLE", self.hotkey_manager.get_display_text(), COLOR_ICON))
+            self.ui_queue.put(("IDLE", self.hotkey_manager.get_display_text(), "muted"))
         finally:
             self.is_processing = False
             self.stop_event.clear()
@@ -1021,7 +1399,7 @@ class VoiceInputApp:
                 return True
             except Exception as e:
                 print(f"[錯誤] Chrome 重啟失敗: {e}")
-                self.ui_queue.put(("IDLE", "❌ Chrome 崩潰", "#d13438"))
+                self.ui_queue.put(("IDLE", "❌ Chrome 崩潰", "error"))
 
                 return False
 

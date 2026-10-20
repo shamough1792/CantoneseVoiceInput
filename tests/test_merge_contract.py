@@ -21,7 +21,8 @@ def test_clipboard_put_before_keyboard_input():
     assert clipboard_index < keyboard_index
 
 def test_has_copy_to_clipboard_setting():
-    assert 'self.copy_to_clipboard = load_config().get("copy_to_clipboard", False)' in SOURCE
+    assert 'config = load_config()' in SOURCE
+    assert 'self.copy_to_clipboard = config["copy_to_clipboard"]' in SOURCE
     assert "def set_copy_to_clipboard(self, value):" in SOURCE
     assert "save_config({" in SOURCE
 
@@ -30,6 +31,6 @@ def test_has_config_functions():
     assert "def save_config(config):" in SOURCE
     assert '"copy_to_clipboard": False' in SOURCE
 
-def test_settings_dialog_has_checkbutton():
-    assert "辨識後自動複製到剪貼簿" in SOURCE
-    assert "tk.Checkbutton(" in SOURCE
+def test_settings_dialog_has_clipboard_switch():
+    assert "辨識成功後自動複製到剪貼簿" in SOURCE
+    assert "cb = ToggleSwitch(" in SOURCE
